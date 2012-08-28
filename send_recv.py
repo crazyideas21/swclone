@@ -8,6 +8,7 @@ Created on Aug 27, 2012
 from lib.pktgen import Pktgen
 from lib.tcpdump import Tcpdump
 import lib.config as config
+import lib.switch
 
 import time
 
@@ -17,6 +18,9 @@ def handle_pkt(flow_id, seq_number, sent_time, recvd_time):
 
 
 def main():
+
+    switch = lib.switch.Switch(config.active_config)
+    switch.reset_flow_table()
 
     pktgen_obj = Pktgen(config.active_config)
     tcpdump_obj = Tcpdump(config.active_config)
@@ -33,8 +37,10 @@ def main():
     tcpdump_result = tcpdump_obj.stop_and_get_result()
     print tcpdump_result.__dict__
     
-    time.sleep(2)
-    tcpdump_obj.parse_pkt(handle_pkt)
+    print 'Success percentage:', (tcpdump_result.recvd_pkt_count * 100 / pktgen_result.sent_pkt_count)
+    
+#    time.sleep(2)
+#    tcpdump_obj.parse_pkt(handle_pkt)
     
 
 

@@ -3,6 +3,18 @@ import lib.config as config
 
 
 
+def ping_test():
+    """
+    Pings from the source to destination hosts to refresh their ARP caches.
+    
+    """
+    p = run_ssh('ping -c 5 ', config.active_config.dest_ip,
+                hostname=config.active_config.source_ip, verbose=True)
+    p.wait()
+    
+
+
+
 def run_cmd(*cmd_args, **kwargs):
     """
     Runs a command in shell. Returns the Popen handle. Passes kwargs to the
@@ -49,8 +61,7 @@ def run_ssh(*cmd_args, **kwargs):
 
 def sync_clocks(config_obj):
     """
-    Synchrnoizes the clock of local and remote hosts. TODO: This is really
-    coarse and should be called once.
+    Coarsely synchrnoizes the clock of local and remote hosts. 
 
     """
     ntpdate_cmd = 'pkill ntpd; ntpdate -p 8 ntp.ucsd.edu'

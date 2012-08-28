@@ -48,12 +48,12 @@ class Pktgen:
         pkt_count = target_bw_bps * self.config.max_time / pkt_size_b
         gap_ns = pkt_size_b * (10**9) / target_bw_bps # nanoseconds
 
-        return self._start_low_level(pkt_count, self.config.pkt_size, gap_ns, 
+        return self.low_level_start(pkt_count, self.config.pkt_size, gap_ns, 
                                      self.config.flow_count)            
 
 
 
-    def _start_low_level(self, pkt_count=56, pkt_size=1400, delay=0, flow_count=1):
+    def low_level_start(self, pkt_count=56, pkt_size=1400, gap_ns=0, flow_count=1):
         """
         Sends packets with low-level params. Returns a Popen handle. Avoid using
         this.
@@ -69,7 +69,7 @@ class Pktgen:
                             '[PKTGEN_IFACE]': self.config.pktgen_iface,
                             '[PKT_COUNT]': str(pkt_count),
                             '[PKT_SIZE]': str(pkt_size),
-                            '[DELAY]': str(delay),
+                            '[DELAY]': str(gap_ns),
                             '[MIN_PORT]': str(Pktgen.MIN_PORT),
                             '[MAX_PORT]': str((flow_count + Pktgen.MIN_PORT)),
                             '[SRC_IP]': self.config.source_ip_fake,
