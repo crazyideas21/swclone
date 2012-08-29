@@ -1,14 +1,35 @@
-import math, subprocess, traceback, datetime
+import math, subprocess, traceback, datetime, sys, time
 import lib.config as config
 
 
+def verbose_sleep(t):
+    """
+    Sleeps for t seconds, while printing out how many seconds left.
+    
+    """
+    start_time = time.time()
+    sys.stdout.write('\n')
+    while True:
+        t_elapsed = time.time() - start_time
+        t_left = int(t - t_elapsed)
+        if t_left > 0:
+            sys.stdout.write('\rWaiting... %s seconds             \r' % t_left )
+            sys.stdout.flush()
+            time.sleep(1)
+        else:
+            break
+    sys.stdout.write(' ' * 40 + '\n')
+    sys.stdout.flush()
+    
+    
 
-def ping_test():
+
+def ping_test(how_many_pings=5):
     """
     Pings from the source to destination hosts to refresh their ARP caches.
     
     """
-    p = run_ssh('ping -c 5 ', config.active_config.dest_ip,
+    p = run_ssh('ping -c ', how_many_pings, ' ', config.active_config.dest_ip,
                 hostname=config.active_config.source_ip, verbose=True)
     p.wait()
     

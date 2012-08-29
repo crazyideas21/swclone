@@ -10,12 +10,13 @@ import pox.openflow.libopenflow_01 as of
 from pox.lib.revent import *
 from pox.lib.util import dpidToStr
 from pox.lib.util import str_to_bool
-import os, time, threading, socket, traceback, sys, datetime
+from pox.forwarding.of_profiler_control import ExpControl, mylog
+import time
 
 
 
 SWITCH_PORT_LIST = [32, 34]
-LOG_FILE = 'of_profiler.log'
+
 
 
 def get_the_other_port(this_port):
@@ -28,131 +29,9 @@ def get_the_other_port(this_port):
     
 
 
-if os.path.isfile(LOG_FILE):
-    os.remove(LOG_FILE)
-base_time = time.time()
-
-def mylog(*log_str_args):
-
-    log_str_args = [str(e) for e in log_str_args]
-    log_str = ' '.join(log_str_args)
-
-    with open(LOG_FILE, 'a') as f:
-        print >> f, '%.3f' % (time.time() - base_time),
-        print >> f, datetime.datetime.today().strftime('%m-%d %H:%M:%S'), 
-        print >> f, '>', log_str
-
-
-
-#===============================================================================
-# Experiment Controller
-#===============================================================================
-
-
-
-class ExpControl:
-    """ 
-    Listens for commands that sets the learning switch state and gathers its
-    statistics.
-    
-    """
-    
-    def __init__(self):
-        
-        self.lock = threading.Lock()
-        self._init_state()
-        
-        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_sock.bind(('0.0.0.0', 16633))
-        self.server_sock.listen(5)
-        
-        server_thread = threading.Thread(target=self._accept_loop)
-        server_thread.daemon = True
-        server_thread.start()
-        
-
-    def _init_state(self):
-        """ Experiment state and statisitics. """
-        
-        with self.lock:
-            self.learning = True
-            self.pkt_in_count = 0
-            self.pkt_out_count = 0        
-
-        
-    
-    def _accept_loop(self):
-        
-        while True:
-            (conn, addr) = self.server_sock.accept()
-            conn_thread = threading.Thread(target=self._handle_connection,
-                                           args=(conn, addr))
-            conn_thread.daemon = True
-            conn_thread.start()
-            
-    
-    
-    def _handle_connection(self, conn, addr):
-        
-        try:
-            mylog('ExpControl accepted connection:', addr)
-            while True:
-                cmd = ''
-                while not cmd.endswith('\n\n'):
-                    data = conn.recv(4096)
-                    if data:
-                        cmd += data
-                    else:
-                        mylog('Connection closed:', addr)
-                        return
-                result = repr(self._handle_command(cmd))
-                conn.sendall(result + '\n\n')                
-                mylog('ExpControl command:', cmd.strip(), '->', result)
-
-        except:
-            mylog('ExpControl', addr, 'crashed:', traceback.format_exc())
-            print >> sys.stderr, '\n' * 80, 'ExpControl crashed:', traceback.format_exc()
-            
-            
-            
-    def _handle_command(self, cmd):
-        """ Command and arguments are space-separated. """
-        
-        try:
-            (cmd, arg) = cmd.split(' ', 1)
-        except ValueError:
-            arg = ''
-        
-        cmd = cmd.strip()
-        arg = arg.strip()
-        
-        if cmd == 'GET':
-            with self.lock:
-                return getattr(self, arg)
-        
-        if cmd == 'SET':
-            (attr, value) = arg.split(' ', 1)
-            with self.lock: 
-                setattr(self, attr, eval(value))
-            return 'OK'
-        
-        if cmd == 'GETALL':
-            with self.lock:
-                return self.__dict__
-            
-        if cmd == 'RESET':
-            self._init_state()
-            return 'OK'
-        
-        raise Exception('Bad command: ' + repr(cmd))
-            
-
-
 
 
 exp_control = ExpControl()
-
 
 
 
@@ -178,83 +57,146 @@ class LearningSwitch (EventMixin):
         # We want to hear PacketIn messages, so we listen
         self.listenTo(connection)
 
-        
-        
 
-    def _handle_PacketIn (self, event):
-        """
-        Handles packet in messages from the switch to implement above algorithm.
-        """
-        packet = event.parse()
 
-        def packet_out ():
-            """ Floods the packet """
-            if event.ofp.buffer_id == -1:
-                mylog("Not flooding unbuffered packet on", dpidToStr(event.dpid))
-                return
-            msg = of.ofp_packet_out()            
-            msg.actions.append(of.ofp_action_output(port=get_the_other_port(event.port)))
+    def _packet_out(self, event):
+        """ Floods the packet """
+        if event.ofp.buffer_id == -1:
+            mylog("Not flooding unbuffered packet on", dpidToStr(event.dpid))
+            return
+        msg = of.ofp_packet_out()            
+        msg.actions.append(of.ofp_action_output(port=get_the_other_port(event.port)))
+        msg.buffer_id = event.ofp.buffer_id
+        msg.in_port = event.port
+        self.connection.send(msg)
+
+
+
+    def _drop(self, event):
+        if event.ofp.buffer_id != -1:
+            msg = of.ofp_packet_out()
             msg.buffer_id = event.ofp.buffer_id
             msg.in_port = event.port
             self.connection.send(msg)
 
 
-        def drop():
-            if event.ofp.buffer_id != -1:
-                msg = of.ofp_packet_out()
-                msg.buffer_id = event.ofp.buffer_id
-                msg.in_port = event.port
-                self.connection.send(msg)
+
+    def _is_relevant_packet(self, event, packet):
+        """ 
+        Sanity check to make sure we deal with experimental traffic only.
+        Otherwise, returns False.
         
-        # End of inline functions. 
-        
-        # Now sanity check to make sure we're dealing with the two relevant
-        # ports only.
-        
+        """        
         if not self.transparent:
             if packet.type == packet.LLDP_TYPE or packet.dst.isBridgeFiltered():
-                drop()
-                return
+                self._drop(event)
+                return False
 
         if event.port not in SWITCH_PORT_LIST:
-            drop()
-            return
+            self._drop(event)
+            return False
 
         if packet.dst.isMulticast():
-            packet_out() 
+            self._packet_out(event) 
+            return False
+        
+        outport = get_the_other_port(event.port)
+        
+        if outport == event.port: 
+            mylog("Same port for packet from %s -> %s on %s. Drop." %
+                  (packet.src, packet.dst, outport), dpidToStr(event.dpid))
+            self._drop(event)
+            return False
+        
+        return True
+        
+
+
+
+    def _handle_PacketIn(self, event):
+        """
+        Handles packet in messages from the switch to implement above algorithm.
+        """
+        packet = event.parse()
+        
+        if not self._is_relevant_packet(event, packet):
             return
 
-        # End of sanity check. The packet-in is relevant.
-
+        # Count packet-in events.
         with exp_control.lock:
             learning_switch = exp_control.learning
             exp_control.pkt_in_count += 1
         
+        # Count number of packet-out events if the switch does not install
+        # rules.
         if not learning_switch:
             with exp_control.lock:
                 exp_control.pkt_out_count += 1
-            drop()
+            self._drop(event)
             return
         
         outport = get_the_other_port(event.port)        
-        if outport == event.port: 
-            mylog("Same port for packet from %s -> %s on %s. Drop." %
-                  (packet.src, packet.dst, outport), dpidToStr(event.dpid))
-            drop()
+        
+        # Automatically learns new flows, as a normal learning switch would do.
+        if exp_control.auto_install_rules:
+            self._install_rule(event, packet, outport)
             return
         
-        # Finally, passed sanity checks. Install the rule.
+        # Manually install rules in the port range.
         
-        mylog("installing flow for %s.%i -> %s.%i" %
-              (packet.src, event.port, packet.dst, outport))
+        with exp_control.lock:
+            tp_dst_range = exp_control.manual_install_tp_dst_range[:]
+            gap_ms = exp_control.manual_install_gap_ms
+                    
+        for tp_dst in range(*tp_dst_range):
+                        
+            # Keep going until the exp_control client decides to stop it.
+            with exp_control.lock:
+                manual_active = exp_control.manual_install_active
+            if not manual_active:
+                break
+
+            self._install_rule(event, packet, outport, tp_dst)
+            time.sleep(gap_ms / 1000.0)
+            
+
         
+    def _install_rule(self, event, packet, outport, tp_dst=None, idle_timeout=0):
+        """
+        Installs a rule for any incoming packet, doing what a learning switch
+        should do.
+        
+        """                
         msg = of.ofp_flow_mod()
         msg.match = of.ofp_match.from_packet(packet)
-        msg.idle_timeout = 200
-        msg.hard_timeout = 300
+        msg.idle_timeout = idle_timeout
+        msg.hard_timeout = 0
         msg.actions.append(of.ofp_action_output(port=outport))
-        msg.buffer_id = event.ofp.buffer_id 
+
+        with exp_control.lock:
+            exp_control.flow_mod_count += 1
+
+        # When buffer ID is specified, the flow mod command is automatically
+        # followed by a packet-out command.                
+        if tp_dst is None:
+            msg.buffer_id = event.ofp.buffer_id
+            with exp_control.lock:
+                exp_control.pkt_out_count += 1
+            mylog("installing flow for %s.%i -> %s.%i" %
+                   (packet.src, event.port, packet.dst, outport))
+        else: 
+            msg.match.tp_dst = tp_dst
+            mylog('Installing rule for tp_dst =', tp_dst)
+        
+        current_time = time.time()
+        
+        with exp_control.lock:
+            if exp_control.flow_mod_start_time is None:
+                exp_control.flow_mod_start_time = current_time
+            exp_control.flow_mod_end_time = current_time  
+        
         self.connection.send(msg)
+        
 
 
 

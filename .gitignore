@@ -3,6 +3,7 @@
 .project
 .pydevproject
 *.log
+*.tmp
 
 # Packages
 *.egg
