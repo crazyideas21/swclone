@@ -24,13 +24,12 @@ def verbose_sleep(t):
     
 
 
-def ping_test(how_many_pings=5):
+def ping_test(how_many_pings=5, dest_host=config.active_config.source_ip):
     """
     Pings from the source to destination hosts to refresh their ARP caches.
     
     """
-    p = run_ssh('ping -c ', how_many_pings, ' ', config.active_config.dest_ip,
-                hostname=config.active_config.source_ip, verbose=True)
+    p = run_cmd('ping -c ', how_many_pings, ' ', dest_host, verbose=True)
     p.wait()
     
 

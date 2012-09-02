@@ -4,6 +4,7 @@
 .pydevproject
 *.log
 *.tmp
+redis-stable/
 
 # Packages
 *.egg

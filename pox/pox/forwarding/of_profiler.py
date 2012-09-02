@@ -138,6 +138,7 @@ class LearningSwitch (EventMixin):
         outport = get_the_other_port(event.port)        
         
         # Automatically learns new flows, as a normal learning switch would do.
+        
         if exp_control.auto_install_rules:
             self._install_rule(event, packet, outport)
             return

@@ -2,7 +2,7 @@
 Wrapper functions for the OpenFlow switch.
 
 """
-import sys, time, subprocess
+import sys, time, subprocess, re
 import lib.config as config
 import lib.util as util
 
@@ -86,6 +86,32 @@ class Switch:
         return [line for line in p.stdout if line.find(filter_str) >= 0]
     
     
+    
+    def get_flow_distribution_dict(self, table_id_str='table_id'):
+        """
+        Returns a dictionary that maps table IDs to lists of tp_src for which
+        the corresponding rule is in that table.
+        
+        """
+        dist_dict = {}        
+        table_id_regex = re.compile(table_id_str + '=(\d+)')
+        tp_src_regex = re.compile('tp_src=(\d+)')
+        
+        for rule in self.dump_tables(filter_str=''):
+            
+            table_id_search = table_id_regex.search(rule)
+            tp_src_search = tp_src_regex.search(rule)
+            
+            if table_id_search and tp_src_search:
+                table_id = int(table_id_search.group(1))
+                tp_src = int(tp_src_search.group(1))
+                if table_id not in dist_dict:
+                    dist_dict[table_id] = []
+                dist_dict[table_id].append(tp_src)
+                
+        return dist_dict
+        
+        
     
     
     def add_rules(self, rule_count, 
