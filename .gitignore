@@ -5,6 +5,7 @@
 *.log
 *.tmp
 redis-stable/
+ovs-1.7.0/
 
 # Packages
 *.egg

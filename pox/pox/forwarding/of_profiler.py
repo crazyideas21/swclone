@@ -2,6 +2,8 @@
 Controller that helps to profile the interactions between OF commands and OF
 switches. Works for only two switch ports.
 
+Arguments: --of_port_1 [OF Port 1] --of_port_2 [OF Port 2].
+
 Written by: Danny Y. Huang
 
 """
@@ -15,7 +17,7 @@ import time
 
 
 
-SWITCH_PORT_LIST = [32, 34]
+SWITCH_PORT_LIST = []
 
 
 
@@ -87,6 +89,8 @@ class LearningSwitch (EventMixin):
         Otherwise, returns False.
         
         """        
+        mylog('zzzz inport =', event.port)
+        
         if not self.transparent:
             if packet.type == packet.LLDP_TYPE or packet.dst.isBridgeFiltered():
                 self._drop(event)
@@ -217,10 +221,13 @@ class l2_learning (EventMixin):
 
 
 
-def launch (transparent=False):
+def launch (transparent=False, of_port_1='32', of_port_2='34'):
     """
     Starts an L2 learning switch.
     """
+    SWITCH_PORT_LIST.append(int(of_port_1))
+    SWITCH_PORT_LIST.append(int(of_port_2))
+    
     core.registerNew(l2_learning, str_to_bool(transparent))
 
 

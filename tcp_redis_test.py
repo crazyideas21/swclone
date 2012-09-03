@@ -14,12 +14,15 @@ from lib.switch import Switch
 from multiprocessing import Process, Queue
 
 
+
 FLOW_TABLE_FILTER = 'table_id=0'
 REDIS_PORT = 6379
-REDIS_HOST_OF = '10.66.10.1'
-REDIS_HOST_TOR = '172.22.14.208'
-DATA_LENGTH = 10*1000*1000
-CLIENT_COUNT = 100
+REDIS_HOST_OF = '10.66.10.1'      # C08
+REDIS_HOST_TOR = '172.22.14.208'  # C08
+#REDIS_HOST_OF = '10.66.6.1'      # C06
+#REDIS_HOST_TOR = '172.22.14.206' # C06
+DATA_LENGTH = 1000 * 1000
+CLIENT_COUNT = 700
 CLIENT_BASE_PORT = 10000
 
 
@@ -58,12 +61,12 @@ def new_wildcard_rules():
     switch.reset_flow_table()
     
     new_tcp_rule1 = 'cookie=0, priority=32768, idle_timeout=0,hard_timeout=0,tcp,in_port=' + \
-                    conf.source_of_port + ',dl_vlan=0xffff,dl_vlan_pcp=0x00,dl_src=' + \
+                    conf.source_of_port + ',dl_src=' + \
                     conf.source_mac + ',dl_dst=' + conf.dest_mac + ',nw_src=' + \
                     conf.source_ip + ',nw_dst=' + conf.dest_ip + \
                     ',actions=output:' + conf.dest_of_port
     new_tcp_rule2 = 'cookie=0, priority=32768, idle_timeout=0,hard_timeout=0,tcp,in_port=' + \
-                    conf.dest_of_port + ',dl_vlan=0xffff,dl_vlan_pcp=0x00,dl_src=' + \
+                    conf.dest_of_port + ',dl_src=' + \
                     conf.dest_mac + ',dl_dst=' + conf.source_mac + ',nw_src=' + \
                     conf.dest_ip + ',nw_dst=' + conf.source_ip + \
                     ',actions=output:' + conf.source_of_port
@@ -113,7 +116,7 @@ def new_exact_match_rules(wait_and_verify=True, reset_flow_table=True,
             proc = util.run_ssh(conf.add_rule_cmd(rule_f(client_id)), 
                                 hostname=conf.ofctl_ip, verbose=True, 
                                 stdout=subprocess.PIPE)
-            if wait_and_verify or (client_id % 10 == 0): 
+            if wait_and_verify or (client_id % 5 == 0): 
                 proc.wait()
         
         # Then verify if the correct number of rules have been added.
@@ -187,9 +190,10 @@ def run(redis_host):
 
 def main():
     
-    #new_exact_match_rules(wait_and_verify=True)
-    #new_wildcard_rules()
+    #new_exact_match_rules(wait_and_verify=False)
+    new_wildcard_rules()
     #new_software_table_rules()
+    
     run(REDIS_HOST_OF)
     
     
