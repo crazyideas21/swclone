@@ -21,29 +21,52 @@ REDIS_HOST_OF = '10.66.10.1'      # C08
 REDIS_HOST_TOR = '172.22.14.208'  # C08
 #REDIS_HOST_OF = '10.66.6.1'      # C06
 #REDIS_HOST_TOR = '172.22.14.206' # C06
-DATA_LENGTH = 1000 * 1000
-CLIENT_COUNT = 700
+DATA_LENGTH = 64 #8 * 1000 * 1000
+CLIENT_COUNT = 3000
 CLIENT_BASE_PORT = 10000
 
 
-def redis_echo_process(client_id, redis_host, delay_queue):    
-    
-    time.sleep(random.uniform(5, 7))
-    arg_list = ['*2', '$4', 'echo', '$%s' % DATA_LENGTH, 'z' * DATA_LENGTH, '']
+def redis_set(data_length=DATA_LENGTH):
+    """ Sets the variable we're going to get later via the TOR switch. """
+
+    arg_list = ['*3', 
+                '$3', 'set', 
+                '$1', 'x', 
+                '$%s' % data_length, 'z' * data_length, '']
     arg_str = '\r\n'.join(arg_list)
+        
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((REDIS_HOST_TOR, REDIS_PORT))    
+    sock.sendall(arg_str)
+    
+    assert sock.recv(1024) == '+OK\r\n'
+    sock.close()
+    
+    
+
+
+def redis_client_process(client_id, redis_host, delay_queue, 
+                          data_length=DATA_LENGTH):    
+    
+    #time.sleep(random.uniform(1, 17))
     
     start_time = time.time()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('0.0.0.0', CLIENT_BASE_PORT + client_id))
-    sock.connect((redis_host, REDIS_PORT))    
-    sock.sendall(arg_str)
+    try:
+        sock.connect((redis_host, REDIS_PORT))
+    except:
+        delay_queue.put([client_id, None])
+        return
+           
+    sock.sendall('get x\r\n')
     
     recv_length = 0
     while True: 
         data = sock.recv(32768)
         recv_length += len(data)
-        if recv_length > DATA_LENGTH and data.endswith('\r\n'):
+        if recv_length > data_length and data.endswith('\r\n'):
             break
         
     total_time = time.time() - start_time    
@@ -147,23 +170,29 @@ def new_software_table_rules(rule_count=CLIENT_COUNT,
     new_exact_match_rules(wait_and_verify=False, reset_flow_table=False, 
                           rule_count=CLIENT_COUNT,  
                           client_base_port=client_base_port)
-    
 
 
-def run(redis_host):
+
+
+
+
+
+
+def run(redis_host, delay_ms):
         
     util.ping_test(dest_host=redis_host)
         
     delay_queue = Queue()
     proc_list = []
-    switch = Switch(config.active_config)
     
     for client_id in range(CLIENT_COUNT):
         print 'Starting client', client_id
-        p = Process(target=redis_echo_process, 
+        p = Process(target=redis_client_process, 
                     args=(client_id, redis_host, delay_queue))
+        p.daemon = True
         p.start()
         proc_list.append(p)
+        time.sleep(delay_ms / 1000.0)
         
     counter = 0    
     for p in proc_list:
@@ -183,18 +212,20 @@ def run(redis_host):
     cdf_list = util.make_cdf(delay_list)    
     with open('data/redis_delay.txt', 'w') as f:
         for (x, y) in zip(delay_list, cdf_list):
-            print >> f, x, y    
+            print >> f, x, y
 
 
 
 
 def main():
     
-    #new_exact_match_rules(wait_and_verify=False)
-    new_wildcard_rules()
+    redis_set()
+    
+    #new_exact_match_rules(wait_and_verify=True)
+    #new_wildcard_rules()
     #new_software_table_rules()
     
-    run(REDIS_HOST_OF)
+    run(REDIS_HOST_OF, 1)
     
     
     

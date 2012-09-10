@@ -166,7 +166,7 @@ class LearningSwitch (EventMixin):
             
 
         
-    def _install_rule(self, event, packet, outport, tp_dst=None, idle_timeout=0):
+    def _install_rule(self, event, packet, outport, tp_dst=None, idle_timeout=10):
         """
         Installs a rule for any incoming packet, doing what a learning switch
         should do.
@@ -175,7 +175,7 @@ class LearningSwitch (EventMixin):
         msg = of.ofp_flow_mod()
         msg.match = of.ofp_match.from_packet(packet)
         msg.idle_timeout = idle_timeout
-        msg.hard_timeout = 0
+        msg.hard_timeout = 30
         msg.actions.append(of.ofp_action_output(port=outport))
 
         with exp_control.lock:

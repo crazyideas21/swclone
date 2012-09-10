@@ -10,6 +10,7 @@ Created on Aug 26, 2012
 #from lib.switch_config.ovs_c05_c06 import OVS
 from lib.switch_config.ovs_c07_c08 import OVS 
 
+#active_config = HPSwitch()
 active_config = OVS()
 
     

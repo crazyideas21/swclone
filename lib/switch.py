@@ -178,8 +178,7 @@ def main():
         print 'Enter "dump" or "del".'
         exit(1)
         
-    p = util.run_ssh(sw_cmd,
-                       hostname=config.active_config.ofctl_ip)
+    p = util.run_ssh(sw_cmd, hostname=config.active_config.ofctl_ip)
     p.wait()    
 
     

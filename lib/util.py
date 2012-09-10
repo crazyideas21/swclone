@@ -2,7 +2,7 @@ import math, subprocess, traceback, datetime, sys, time
 import lib.config as config
 
 
-def verbose_sleep(t):
+def verbose_sleep(t, prompt='Waiting...'):
     """
     Sleeps for t seconds, while printing out how many seconds left.
     
@@ -13,12 +13,12 @@ def verbose_sleep(t):
         t_elapsed = time.time() - start_time
         t_left = int(t - t_elapsed)
         if t_left > 0:
-            sys.stdout.write('\rWaiting... %s seconds             \r' % t_left )
+            sys.stdout.write('\r%s %s seconds       \r' % (prompt, t_left))
             sys.stdout.flush()
             time.sleep(1)
         else:
             break
-    sys.stdout.write(' ' * 40 + '\n')
+    sys.stdout.write(prompt + 'Done.'  + ' ' * 20 + '\n')
     sys.stdout.flush()
     
     
