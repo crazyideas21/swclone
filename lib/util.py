@@ -1,5 +1,24 @@
-import math, subprocess, traceback, datetime, sys, time
+import math, subprocess, traceback, datetime, sys, time, warnings
 import lib.config as config
+
+
+
+def deprecated(func):
+    """This is a decorator which can be used to mark functions
+    as deprecated. It will result in a warning being emmitted
+    when the function is used."""
+    ## {{{ http://code.activestate.com/recipes/391367/ (r1)    
+    def newFunc(*args, **kwargs):
+        warnings.warn("Call to deprecated function %s." % func.__name__,
+                      category=DeprecationWarning)
+        return func(*args, **kwargs)
+    newFunc.__name__ = func.__name__
+    newFunc.__doc__ = func.__doc__
+    newFunc.__dict__.update(func.__dict__)
+    return newFunc
+
+
+
 
 
 def verbose_sleep(t, prompt='Waiting...'):
@@ -21,7 +40,27 @@ def verbose_sleep(t, prompt='Waiting...'):
     sys.stdout.write(prompt + 'Done.'  + ' ' * 20 + '\n')
     sys.stdout.flush()
     
+
+
+def callback_sleep(t, callback, interval=2):
+    """
+    Sleeps for t seconds, while invoking the callback function at a given
+    interval. The callback function should take one argument, t_left, which 
+    denotes how many seconds left.
     
+    """
+    start_time = time.time()
+    while True:
+        t_elapsed = time.time() - start_time
+        t_left = int(t - t_elapsed)
+        if t_left > 0:        
+            callback(t_left)
+            time.sleep(interval)
+        else:
+            break
+    
+
+
 
 
 def ping_test(how_many_pings=5, dest_host=config.active_config.source_ip):
@@ -147,22 +186,27 @@ def error_log(log_str):
     except Exception, err:
         print 'Logging failed:', repr(err), str(err)
         
-        
-        
-def make_cdf(inlist):
+
+
+def make_cdf_table(inlist):
     """
-    Sorts the input list in place. Returns its CDF as a list, whose length is
-    equal to the input list.
+    Calculates the CDF of elements in input list. Returns a sorted list of (v,p)
+    values, where p is the cumulative probability of the value v in the input
+    list. The input list is not modified.
     
     """
     inlength = len(inlist)
     if inlength == 0:
         return []
-    
-    inlist.sort()
-    prob_increment = 1.0 / inlength
-    
-    return [0.0 + prob_increment * index for index in xrange(inlength)]
+        
+    prob_increment = 1.0 / inlength    
+    probabilities = [0.0 + prob_increment * index for index in xrange(inlength)]
+
+    inlist_sorted = sorted(inlist)
+    return zip(inlist_sorted, probabilities)
+
+        
+
 
 
 
@@ -192,4 +236,34 @@ def hex_to_int(hex_str):
     """
     hex_str = hex_str.replace(' ', '')
     return int(hex_str, 16)
+
+
+
+
+
+
+
+#===============================================================================
+# DEPRECATED
+#===============================================================================
+
+
+
+
+@deprecated        
+def make_cdf(inlist):
+    """
+    DEPRECATED. Sorts the input list in place. Returns its CDF as a list, whose
+    length is equal to the input list.
+    
+    """
+    inlength = len(inlist)
+    if inlength == 0:
+        return []
+    
+    inlist.sort()
+    prob_increment = 1.0 / inlength
+    
+    return [0.0 + prob_increment * index for index in xrange(inlength)]
+
     

@@ -24,6 +24,9 @@ Depends on openflow.discovery
 Works with openflow.spanning_tree
 """
 
+# Whether to install wildcarded rules and set unlimited timeout.
+WILDCARD = False # Defaults to False
+
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.revent import *
@@ -140,6 +143,12 @@ class PathInstalled (Event):
     self.path = path
 
 
+def _copy_attr(src, dst, attr_list):
+    for attr in attr_list:
+        attr_value = getattr(src, attr)
+        setattr(dst, attr, attr_value)
+
+
 class Switch (EventMixin):
   def __init__ (self):
     self.connection = None
@@ -151,10 +160,17 @@ class Switch (EventMixin):
     return dpidToStr(self.dpid)
 
   def _install (self, switch, port, match, buf = -1):
-    msg = of.ofp_flow_mod()
-    msg.match = match
-    msg.idle_timeout = 10
-    msg.hard_timeout = 30
+    msg = of.ofp_flow_mod()    
+    if WILDCARD:
+        _copy_attr(match, msg.match, 
+                   ['in_port', 'dl_src', 'dl_dst', 'dl_vlan', 'dl_vlan_pcp',
+                    'dl_type', 'nw_tos', 'nw_src', 'nw_dst'])
+        msg.idle_timeout = 0
+        msg.hard_timeout = 0
+    else:
+        msg.match = match
+        msg.idle_timeout = 10
+        msg.hard_timeout = 30        
     msg.actions.append(of.ofp_action_output(port = port))
     msg.buffer_id = buf
     switch.connection.send(msg)
@@ -386,7 +402,11 @@ class l2_multi (EventMixin):
       sw.connect(event.connection)
 
 
-def launch ():
+def launch (wildcard=False):
+  
+  global WILDCARD
+  WILDCARD = wildcard  
+    
   if 'openflow_discovery' not in core.components:
     import pox.openflow.discovery as discovery
     core.registerNew(discovery.Discovery)

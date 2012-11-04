@@ -242,7 +242,7 @@ def main():
     switch.reset_flow_table()    
     
     #new_wildcard_rules()
-    start_processes(200, 50, TOTAL_CLIENT_COUNT, 10.0, 64, REDIS_HOST_OF)
+    start_processes(200, 50, TOTAL_CLIENT_COUNT, 10.0, 10*1000*1000, REDIS_HOST_OF)
 
 
 

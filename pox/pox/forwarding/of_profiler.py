@@ -18,7 +18,8 @@ import time
 
 
 SWITCH_PORT_LIST = []
-
+IDLE_TIMEOUT = 0  # Default: 10
+HARD_TIMEOUT = 0  # Default: 30
 
 
 def get_the_other_port(this_port):
@@ -166,7 +167,7 @@ class LearningSwitch (EventMixin):
             
 
         
-    def _install_rule(self, event, packet, outport, tp_dst=None, idle_timeout=10):
+    def _install_rule(self, event, packet, outport, tp_dst=None, idle_timeout=IDLE_TIMEOUT):
         """
         Installs a rule for any incoming packet, doing what a learning switch
         should do.
@@ -175,7 +176,7 @@ class LearningSwitch (EventMixin):
         msg = of.ofp_flow_mod()
         msg.match = of.ofp_match.from_packet(packet)
         msg.idle_timeout = idle_timeout
-        msg.hard_timeout = 30
+        msg.hard_timeout = HARD_TIMEOUT
         msg.actions.append(of.ofp_action_output(port=outport))
 
         with exp_control.lock:
