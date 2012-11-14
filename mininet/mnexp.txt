@@ -1,7 +1,7 @@
 sh killall -9 redis-server
 sh killall -9 distr_redis_clients.py
 sh rm /root/swclone/*.tmp
-h30 sh -c 'cd ~/redis-stable; src/redis-server redis.conf > /dev/null' &
+h30 sh -c 'cd /root/redis-stable; src/redis-server redis.conf > /dev/null' &
 h31 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
 h32 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
 h40 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &

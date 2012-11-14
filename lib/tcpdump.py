@@ -3,7 +3,7 @@ Wrapper for tcpdump.
 
 """
 import re, time, subprocess
-import util, config, pktgen
+import util, pktgen
 
 
 class TcpdumpResult:
@@ -22,7 +22,8 @@ class Tcpdump:
         if config_obj:
             self.config = config_obj
         else:
-            self.config = config.HPSwitch()
+            self.config = None
+            assert False
     
     
     

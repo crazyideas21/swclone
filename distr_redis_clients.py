@@ -64,12 +64,12 @@ else:
 
 # Expected gap in milliseconds between successive requests. Actual value may
 # differ.
-#EXPECTED_GAP_MS = 50 # Mouse flows
-EXPECTED_GAP_MS = 1000 # Elephant flows
+EXPECTED_GAP_MS = 50 # Mouse flows
+#EXPECTED_GAP_MS = 1000 # Elephant flows
 
 # How many bytes to put/get on the redis server.
-#DATA_LENGTH = 64 # Mouse flows
-DATA_LENGTH = 1*1000*1000 # Elephant flows
+DATA_LENGTH = 64 # Mouse flows
+#DATA_LENGTH = 1*1000*1000 # Elephant flows
 
 # How many hosts run the redis clients.
 REDIS_CLIENT_HOST_COUNT = 8

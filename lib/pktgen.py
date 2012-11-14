@@ -91,9 +91,10 @@ class Pktgen:
     
         # Execute the script remotely.
         
-        util.run_ssh('chmod +x /tmp/pktgen_wrapper.sh; ', 
-                     '/tmp/pktgen_wrapper.sh', 
-                     hostname=self.config.pktgen_host)
+        return util.run_ssh('chmod +x /tmp/pktgen_wrapper.sh; ',
+                            'pkill -2 pktgen_wrapper.sh; ',
+                            '/tmp/pktgen_wrapper.sh', 
+                            hostname=self.config.pktgen_host)
     
 
 

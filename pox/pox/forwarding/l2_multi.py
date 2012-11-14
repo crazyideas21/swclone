@@ -27,12 +27,17 @@ Works with openflow.spanning_tree
 # Whether to install wildcarded rules and set unlimited timeout.
 WILDCARD = False # Defaults to False
 
+# Whether to limit the rate of pkt_in and flow_mod to emulate HP switch.
+RATE_LIMIT = False # Defaults to False
+
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.revent import *
 from collections import defaultdict
 from pox.openflow.discovery import Discovery
 from pox.lib.util import dpidToStr
+from lib.limiter import Limiter
+
 
 log = core.getLogger()
 
@@ -155,6 +160,10 @@ class Switch (EventMixin):
     self.ports = None
     self.dpid = None
     self._listeners = None
+    
+    self._pkt_in_limiter = Limiter(100)
+    self._flow_mod_limiter = Limiter(50)
+
 
   def __repr__ (self):
     return dpidToStr(self.dpid)
@@ -173,7 +182,11 @@ class Switch (EventMixin):
         msg.hard_timeout = 30        
     msg.actions.append(of.ofp_action_output(port = port))
     msg.buffer_id = buf
-    switch.connection.send(msg)
+    if RATE_LIMIT: 
+        if self._flow_mod_limiter.to_forward_packet():
+            switch.connection.send(msg) 
+    else:
+        switch.connection.send(msg) 
 
   def _install_path (self, p, match, buffer_id = -1):
     for sw,port in p[1:]:
@@ -246,6 +259,10 @@ class Switch (EventMixin):
         event.ofp.buffer_id = -1 # Mark is dead
         msg.in_port = event.port
         self.connection.send(msg)
+
+    if RATE_LIMIT:
+        if not self._pkt_in_limiter.to_forward_packet():
+            return
 
     packet = event.parsed
 
@@ -402,10 +419,13 @@ class l2_multi (EventMixin):
       sw.connect(event.connection)
 
 
-def launch (wildcard=False):
+def launch (wildcard=False, rate_limit=False):
   
   global WILDCARD
   WILDCARD = wildcard  
+  
+  global RATE_LIMIT
+  RATE_LIMIT = rate_limit
     
   if 'openflow_discovery' not in core.components:
     import pox.openflow.discovery as discovery

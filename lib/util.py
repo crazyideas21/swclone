@@ -21,6 +21,24 @@ def deprecated(func):
 
 
 
+
+def dictify(obj, max_level=5):
+    """
+    Recursively returns the object's string representation in the form of
+    dictionaries.
+    
+    """
+    if hasattr(obj, '__dict__') and max_level > 0:
+        obj_dict = dict(obj.__dict__)
+        for key in obj_dict:
+            obj_dict[key] = dictify(obj_dict[key], max_level=max_level-1)
+        return obj_dict
+    
+    else:
+        return obj
+
+
+
 def verbose_sleep(t, prompt='Waiting...'):
     """
     Sleeps for t seconds, while printing out how many seconds left.

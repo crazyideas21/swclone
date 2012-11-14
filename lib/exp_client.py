@@ -8,6 +8,7 @@ Created on Aug 27, 2012
 '''
 
 import socket
+from lib.session_sock import SessionSocket
 
 
 class ExpControlClient:
@@ -15,18 +16,14 @@ class ExpControlClient:
     
     def __init__(self, controller_host, controller_port=16633):        
     
-        self.sock = socket.create_connection((controller_host, controller_port))
+        raw_sock = socket.create_connection((controller_host, controller_port))
+        self.sock = SessionSocket(raw_sock)
         
     
     
     def execute(self, cmd):
         
-        self.sock.sendall(str(cmd) + '\n\n')
-        
-        result = ''
-        while not result.endswith('\n\n'):
-            result += self.sock.recv(4096)
-            
-        return eval(result)
+        self.sock.send(cmd)
+        return self.sock.recv()
     
     

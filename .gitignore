@@ -6,6 +6,7 @@
 *.tmp
 redis-stable/
 ovs-1.7.0/
+.AppleDouble/
 
 # Packages
 *.egg

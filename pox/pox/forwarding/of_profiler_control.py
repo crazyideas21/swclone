@@ -7,10 +7,9 @@ Created on Aug 28, 2012
 @author: danny
 '''
 import os, time, datetime, threading, socket, traceback, sys
+from lib.session_sock import SessionSocket, ConnectionClosed
 
 LOG_FILE = 'of_profiler.log'
-
-
 
 if os.path.isfile(LOG_FILE):
     os.remove(LOG_FILE)
@@ -66,17 +65,28 @@ class ExpControl:
         self.lock.acquire()
         
         self.learning = True
-        self.pkt_in_count = 0
-        self.pkt_out_count = 0        
         
+        self.pkt_in_count = 0
         self.flow_mod_count = 0
+        self.pkt_out_count = 0        
+
+        self.pkt_in_start_time = None
+        self.pkt_in_end_time = None
+        
         self.flow_mod_start_time = None
         self.flow_mod_end_time = None
+
+        self.flow_stat_interval = 0
+        self.flow_count_dict = {} # time -> flow_count
 
         self.auto_install_rules = True
         self.manual_install_active = False
         self.manual_install_gap_ms = 1
         self.manual_install_tp_dst_range = [0, 65530]
+    
+        self.install_bogus_rules = False
+        
+        self.emulate_hp_switch = False
         
         self.lock.release()
         
@@ -86,6 +96,7 @@ class ExpControl:
         
         while True:
             (conn, addr) = self.server_sock.accept()
+            conn = SessionSocket(conn)
             conn_thread = threading.Thread(target=self._handle_connection,
                                            args=(conn, addr))
             conn_thread.daemon = True
@@ -98,17 +109,14 @@ class ExpControl:
         try:
             mylog('ExpControl accepted connection:', addr)
             while True:
-                cmd = ''
-                while not cmd.endswith('\n\n'):
-                    data = conn.recv(4096)
-                    if data:
-                        cmd += data
-                    else:
-                        mylog('Connection closed:', addr)
-                        return
-                result = repr(self._handle_command(cmd))
-                conn.sendall(result + '\n\n')                
-                mylog('ExpControl command:', cmd.strip(), '->', result)
+                try:
+                    cmd = conn.recv()
+                except ConnectionClosed:
+                    mylog('Connection closed:', addr)
+                    return
+                result = self._handle_command(cmd)
+                conn.send(result)
+                mylog('ExpControl command:', cmd, '->', result)
 
         except:
             mylog('ExpControl', addr, 'crashed:', traceback.format_exc())
@@ -118,30 +126,21 @@ class ExpControl:
             
     def _handle_command(self, cmd):
         """ Command and arguments are space-separated. """
-        
-        try:
-            (cmd, arg) = cmd.split(' ', 1)
-        except ValueError:
-            arg = ''
-        
-        cmd = cmd.strip()
-        arg = arg.strip()
-        
-        if cmd == 'GET':
+                
+        if cmd[0] == 'GET':
             with self.lock:
-                return getattr(self, arg)
+                return getattr(self, cmd[1])
         
-        if cmd == 'SET':
-            (attr, value) = arg.split(' ', 1)
+        if cmd[0] == 'SET':
             with self.lock: 
-                setattr(self, attr, eval(value))
+                setattr(self, cmd[1], cmd[2])
             return 'OK'
         
-        if cmd == 'GETALL':
+        if cmd[0] == 'GETALL':
             with self.lock:
                 return self.__dict__
             
-        if cmd == 'RESET':
+        if cmd[0] == 'RESET':
             self._init_state()
             return 'OK'
         

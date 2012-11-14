@@ -20,7 +20,11 @@ Created on Oct 23, 2012
 import cPickle as pickle
 
 
-class InsufficientData(Exception):
+class _InsufficientData(Exception):
+    pass
+
+
+class ConnectionClosed(Exception):
     pass
 
 
@@ -47,7 +51,8 @@ class SessionSocket:
         
     def recv(self):
         """ 
-        May block if no data in rbuf. Returns the data in its original type. 
+        May block if no data in rbuf. Returns the data in its original type. If
+        socket is closed, raises the ConnectionClosed exception.
         
         """
         while True:                        
@@ -56,19 +61,24 @@ class SessionSocket:
                 try:
                     (header, data) = self._rbuf.split('@', 1)
                 except ValueError:
-                    raise InsufficientData
+                    raise _InsufficientData
                 
                 length = int(header)
                 if len(data) < length:
-                    raise InsufficientData
+                    raise _InsufficientData
                 else:                    
                     self._rbuf = self._rbuf[len(header) + 1 + length : ]
                     data = data[0 : length]
                     return pickle.loads(data)            
                 
-            except InsufficientData:
+            except _InsufficientData:
                 # Not enough data. Ask network.
-                self._rbuf += self._sock.recv(32768)
+                data = self._sock.recv(32768)
+                if data:
+                    self._rbuf += data
+                else:
+                    raise ConnectionClosed
+                
         
     
     def close(self):
