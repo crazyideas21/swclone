@@ -18,7 +18,7 @@ from pox.lib.util import str_to_bool
 from pox.lib.addresses import EthAddr
 from pox.forwarding.of_profiler_control import ExpControl, mylog
 import time, random, traceback
-from lib.util import dictify
+from lib.util import dictify, pretty_dict
 from lib.limiter import Limiter
 
 
@@ -104,6 +104,8 @@ class LearningSwitch (EventMixin):
         
         """        
         mylog('zzzz inport =', event.port)
+        
+        
         
         if not self.transparent:
             if packet.type == packet.LLDP_TYPE or packet.dst.isBridgeFiltered():
@@ -267,6 +269,7 @@ class LearningSwitch (EventMixin):
                 exp_control.flow_mod_start_time = current_time
             exp_control.flow_mod_end_time = current_time  
         
+        mylog('Flow_mod:', pretty_dict(dictify(msg)))
         self.connection.send(msg)
         
 

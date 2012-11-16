@@ -157,10 +157,21 @@ class Pktgen:
         return out_str
 
 
+
+
+
+def test():
+    
+    pktgen = Pktgen(config.active_config)
+    pktgen.low_level_start(pkt_count=20, pkt_size=1500, gap_ns=500000000, flow_count=20) # half a second gap
+    util.verbose_sleep(10, 'Waiting for pktgen to finish')
+    result = pktgen.stop_and_get_result()
+    print result.__dict__
     
     
 
-
+if __name__ == '__main__':
+    test()
 
 
 

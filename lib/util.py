@@ -1,5 +1,67 @@
-import math, subprocess, traceback, datetime, sys, time, warnings
+import math, subprocess, traceback, datetime, sys, time, warnings, threading
 import lib.config as config
+
+
+class Logger:
+    
+    def __init__(self, log_file, reset=True):
+        
+        self._log_file = log_file
+        self._base_time = time.time()
+        self._lock = threading.Lock()
+        
+        if reset:
+            with open(self._log_file, 'w') as f:
+                print >> f, '*' * 80
+                print >> f, datetime.datetime.today().strftime('%m-%d %H:%M:%S')
+                print >> f, '*' * 80
+                
+        
+        
+    
+    def write(self, *log_str_args):
+    
+        log_str_args = [str(e) for e in log_str_args]
+        log_str = ' '.join(log_str_args)
+    
+        with self._lock:
+            with open(self._log_file, 'a') as f:
+                print >> f, '%.3f' % (time.time() - self._base_time),
+                print >> f, datetime.datetime.today().strftime('%m-%d %H:%M:%S'), 
+                print >> f, '>', log_str
+
+
+    def __call__(self, *log_str_args):
+        
+        self.write(*log_str_args)
+        
+        
+
+# Stores (func, args, kwargs) -> func output
+_func_cache_dict = {}
+_func_cache_lock = threading.Lock()
+
+def func_cache(func, *args, **kwargs):
+    """
+    Returns the output of the func(*args, **kwargs). If the function is
+    invoked again with the same obj and arguments, the cached result is
+    returned. Thread-safe. All arguments must be hashable.
+    
+    """
+    key = (func, tuple(args), tuple(kwargs.items()))
+    with _func_cache_lock:
+        try:
+            return _func_cache_dict[key]
+        except KeyError:
+            pass
+        except TypeError:
+            raise TypeError('Unhasable arguments: ' + str(key))
+        
+    ret = func(*args, **kwargs)
+    with _func_cache_lock:
+        _func_cache_dict[key] = ret
+
+    return ret
 
 
 
@@ -36,6 +98,25 @@ def dictify(obj, max_level=5):
     
     else:
         return obj
+
+
+
+def pretty_dict(dict_obj, indentation='  '):
+    """ 
+    Recursivly returns a formatted string representation of the dictionary.
+    
+    """
+    result = ''
+    
+    if isinstance(dict_obj, dict):
+        result += '\n'
+        for key in dict_obj:
+            result += indentation + ' * ' + str(key) + ' : '
+            result += pretty_dict(dict_obj[key], indentation + '  ')
+    else:
+        result = repr(dict_obj) + ' [%d]' % len(str(dict_obj)) + '\n'
+        
+    return result
 
 
 
@@ -119,6 +200,11 @@ def run_ssh(*cmd_args, **kwargs):
     - user: SSH user. If none, defaults to root.
     - hostname: SSH username.
     
+    Specifying the '-t' options allows the remote process to be killed when the
+    local ssh session is terminated. See:
+    
+    http://stackoverflow.com/questions/331642/how-to-make-ssh-to-kill-remote-process-when-i-interrupt-ssh-itself
+    
     The cmd_args are what's actually run in the SSH session. The rest of the
     kwargs are passed into run_cmd().
     
@@ -131,7 +217,7 @@ def run_ssh(*cmd_args, **kwargs):
     hostname = kwargs['hostname']        
     del kwargs['hostname']
     
-    args = ['ssh ', user, '@', hostname, ' "'] + list(cmd_args) + ['"']         
+    args = ['ssh -t ', user, '@', hostname, ' "'] + list(cmd_args) + ['"']         
     return run_cmd(*args, **kwargs)
     
 
