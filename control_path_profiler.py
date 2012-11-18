@@ -27,9 +27,12 @@ MAX_RUNNING_TIME = 70
 TRIGGER_PORT = 32767
 
 FLEXI_CONTROLLER_HOST = '132.239.17.35'
+FLEXI_CONTROLLER_SSH_PORT = 2222
+FLEXI_CONTROLLER_SSH_USERNAME = 'root'
 
-#POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
-POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=56789 forwarding.flexi_controller --of_port_1=1 --of_port_2=3;'
+
+POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
+#POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=56789 forwarding.flexi_controller --of_port_1=1 --of_port_2=2;'
 
 
 def send_trigger_packet():
@@ -47,12 +50,16 @@ def send_trigger_packet():
 def start_controller():
     """ Returns a Popen object. """
     
-    cmd = ['export PYTHONPATH="/home/danny/swclone:/home/danny/swclone/lib";',
+    cmd = ['cd ~/swclone;',
+           'export PYTHONPATH=$PYTHONPATH:`pwd`;',
+           'cd ~/swclone/lib;',
+           'export PYTHONPATH=$PYTHONPATH:`pwd`;',
            'cd ~/swclone;',
            POX_CMD
            ]
     
-    return util.run_ssh(*cmd, verbose=True, hostname=FLEXI_CONTROLLER_HOST, user='danny')
+    return util.run_ssh(*cmd, verbose=True, hostname=FLEXI_CONTROLLER_HOST, 
+                        user=FLEXI_CONTROLLER_SSH_USERNAME, port=FLEXI_CONTROLLER_SSH_PORT)
 
 
 
@@ -221,20 +228,23 @@ def main():
 def run(packet_size=1500):
     
     # Writer initial header to file.
-    result_file = './data/ovs_sensitivity_%d_byte.csv' % packet_size
+    result_file = './data/hp_sensitivity_%d_byte.csv' % packet_size
     with open(result_file, 'w') as f:
         print >> f, 'ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps,expected_ingress,expected_flow_mod,expected_pkt_out'
     
+    input_list = [10, 100, 400, 700, 1000]  # HP
+    #input_list = [10, 100, 1000]  # OVS
     
-    for ingress_pps in [10, 100, 400, 700, 1000]:
-        for flow_mod_pps in [10, 100, 400, 700, 1000]:
-            for pkt_out_pps in [10, 100, 400, 700, 1000]:
+    for ingress_pps in input_list:
+        for flow_mod_pps in input_list:
+            for pkt_out_pps in input_list:
 
                 start_controller()
                 
                 while True:
                     try:
                         proxy_client = StateProxyClient(FLEXI_CONTROLLER_HOST)
+                        proxy_client.hello()
                         break
                     except:
                         print 'Waiting for controller...'

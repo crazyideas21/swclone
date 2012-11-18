@@ -104,6 +104,9 @@ class StateProxyServer(threading.Thread):
         elif cmd_list[0] == 'EXIT':
             os._exit(0)
             
+        elif cmd_list[0] == 'HELLO':
+            sock.send('Hi there!')
+            
         else:
             raise RuntimeError('Bad command: %s' % cmd_list)
         
@@ -116,6 +119,10 @@ class StateProxyClient:
     def __init__(self, proxy_host, port=StateProxyServer.DEFAULT_LISTEN_PORT):
         raw_sock = socket.create_connection((proxy_host, port))
         self._sock = SessionSocket(raw_sock)
+        
+    def hello(self):
+        self._sock.send(['HELLO'])
+        assert self._sock.recv() == 'Hi there!'
         
     def get(self, attr):
         self._sock.send(['GET', str(attr)])

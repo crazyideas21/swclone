@@ -199,6 +199,7 @@ def run_ssh(*cmd_args, **kwargs):
     Runs SSH. Need to specify these keyword arguments:
     - user: SSH user. If none, defaults to root.
     - hostname: SSH username.
+    - port: SSH port. If none, defaults to 22.
     
     Specifying the '-t' options allows the remote process to be killed when the
     local ssh session is terminated. See:
@@ -213,11 +214,16 @@ def run_ssh(*cmd_args, **kwargs):
     if 'user' in kwargs:
         user = kwargs['user']
         del kwargs['user']
+
+    port = 22
+    if 'port' in kwargs:
+        port = kwargs['port']
+        del kwargs['port']
         
     hostname = kwargs['hostname']        
     del kwargs['hostname']
     
-    args = ['ssh -t ', user, '@', hostname, ' "'] + list(cmd_args) + ['"']         
+    args = ['ssh -t -p ', int(port), ' -l ', user, ' ', hostname, ' "'] + list(cmd_args) + ['"']         
     return run_cmd(*args, **kwargs)
     
 
