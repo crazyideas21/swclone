@@ -221,14 +221,14 @@ def main():
 def run(packet_size=1500):
     
     # Writer initial header to file.
-    result_file = './data/ovs_control_path_profiler_%d.csv' % packet_size
+    result_file = './data/ovs_sensitivity_%d_byte.csv' % packet_size
     with open(result_file, 'w') as f:
-        print >> f, 'ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps'
+        print >> f, 'ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps,expected_ingress,expected_flow_mod,expected_pkt_out'
     
     
-    for ingress_pps in [10, 100, 1000]:
-        for flow_mod_pps in [10, 100, 1000]:
-            for pkt_out_pps in [10, 100, 1000]:
+    for ingress_pps in [10, 100, 400, 700, 1000]:
+        for flow_mod_pps in [10, 100, 400, 700, 1000]:
+            for pkt_out_pps in [10, 100, 400, 700, 1000]:
 
                 start_controller()
                 
@@ -281,7 +281,10 @@ def run(packet_size=1500):
                              pkt_out.get_sent_pps(),
                              pkt_in.get_received_pps(),
                              check_rule.get_received_pps(),
-                             egress.get_received_pps()]
+                             egress.get_received_pps(),
+                             ingress_pps,
+                             flow_mod_pps,
+                             pkt_out_pps]
                 
                 # Write csv data.
                 data = ','.join(['%.4f' % pps for pps in data_list])  
@@ -361,7 +364,7 @@ def test():
         
 
 if __name__ == '__main__':
-    test()
+    main()
     
     
     
