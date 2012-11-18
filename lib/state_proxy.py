@@ -8,8 +8,9 @@ Created on Nov 14, 2012
 @author: danny
 '''
 
-import socket, threading, traceback, sys
+import socket, threading, traceback, sys, os
 from lib.session_sock import SessionSocket, ConnectionClosed
+from lib.util import pretty_dict
 
 
 
@@ -73,15 +74,20 @@ class StateProxyServer(threading.Thread):
         
         if cmd_list[0] == 'GET':
             # ['GET', 'name_of_attr'] -> value_obj
-            sock.send(getattr(self._local_obj, cmd_list[1]))
+            with self._lock:
+                ret = getattr(self._local_obj, cmd_list[1])
+            sock.send(ret)
 
         elif cmd_list[0] == 'GETALL':
             # ['GETALL'] -> obj's dict
-            sock.send(self._local_obj.__dict__) 
+            with self._lock:
+                ret = pretty_dict(self._local_obj.__dict__)
+            sock.send(ret)
         
         elif cmd_list[0] == 'SET':
             # ['SET', 'name_of_attr', value_obj] -> 'OK'
-            setattr(self._local_obj, cmd_list[1], cmd_list[2])
+            with self._lock:
+                setattr(self._local_obj, cmd_list[1], cmd_list[2])
             sock.send('OK')
             
         elif cmd_list[0] == 'RESET':
@@ -94,6 +100,9 @@ class StateProxyServer(threading.Thread):
             func = getattr(self._local_obj, cmd_list[1])
             ret = func(*cmd_list[2:])
             sock.send(ret)
+            
+        elif cmd_list[0] == 'EXIT':
+            os._exit(0)
             
         else:
             raise RuntimeError('Bad command: %s' % cmd_list)
@@ -128,4 +137,6 @@ class StateProxyClient:
         self._sock.send(['RUN', str(func_name)] + list(args))
         return self._sock.recv()
     
+    def exit(self):
+        self._sock.send(['EXIT'])
     

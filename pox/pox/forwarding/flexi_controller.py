@@ -62,10 +62,7 @@ class LearningSwitch (EventMixin):
     
     def __init__ (self, connection, transparent):
         
-        # To allow the experiment's main program to access all the internal
-        # state of this controller.
         self.lock = threading.Lock()
-        StateProxyServer(self, self.lock, self.reset).start()
         
         # To make sure only one thread is using the socket.
         self.socket_lock = threading.Lock()
@@ -85,10 +82,17 @@ class LearningSwitch (EventMixin):
         stat_t = threading.Thread(target=self.flow_stat_thread)
         stat_t.daemon = True
         stat_t.start()
+
+        # To allow the experiment's main program to access all the internal
+        # state of this controller.
+        StateProxyServer(self, self.lock, self.reset).start()
+        
         
         
 
     def reset(self):
+        
+        self.lock.acquire()
         
         # OF event stats, in the form of (pkt_count, start_time, end_time).        
         self.pkt_in_stat = (0, None, None)
@@ -106,7 +110,10 @@ class LearningSwitch (EventMixin):
         # How long should our garbage pkt-out packets be?
         self.pkt_out_length = 1500
         
-
+        self.lock.release()
+        
+        
+        
 
     def _of_send(self, msg):
         """ Sends OpenFlow message, thread-safe. """
@@ -137,10 +144,12 @@ class LearningSwitch (EventMixin):
         
         if not self.transparent:
             if packet.type == packet.LLDP_TYPE or packet.dst.isBridgeFiltered():
+                mylog('pkt_in: Rejected packet LLDP or BridgeFiltered:', packet, repr(packet), dictify(packet))
                 self._drop(event)
                 return False
 
         if event.port not in SWITCH_PORT_LIST:
+            mylog('pkt_in: Rejected packet: invalid port', packet, repr(packet), dictify(packet))
             self._drop(event)
             return False
 
@@ -225,7 +234,6 @@ class LearningSwitch (EventMixin):
                             
         # There are just packets that we don't care.
         if not self._is_relevant_packet(event, packet):
-            mylog('pkt_in: Rejected packet:', packet, repr(packet), dictify(packet))
             return
 
         # Count packet-in events.
@@ -305,6 +313,7 @@ class LearningSwitch (EventMixin):
             msg.actions.append(of.ofp_action_output(port=get_the_other_port(event.port)))
             msg.buffer_id = event.ofp.buffer_id
             msg.in_port = event.port
+            mylog('Normal packet-out: ', msg)
             
         # Special pkt-out that generates a packet that is exactly the same as
         # the trigger packet. Unfortunately, only 114 bytes of the original
@@ -315,7 +324,8 @@ class LearningSwitch (EventMixin):
             raw_data = func_cache(self.trigger_event.parse).raw
             if len(raw_data) < self.pkt_out_length:
                 raw_data += 'z' * (self.pkt_out_length - len(raw_data))
-            msg.data = raw_data
+            msg._data = raw_data
+            msg.buffer_id = -1
             with self.lock:
                 assert self.trigger_event
                 msg.actions.append(of.ofp_action_output(port=get_the_other_port(self.trigger_event.port)))

@@ -14,7 +14,6 @@ Nov 14, 2012
 
 """
 from lib.packet_sender_receiver import PacketSender, PacketReceiver
-from lib.switch import Switch
 from lib.pktgen import Pktgen
 from lib.tcpdump import Tcpdump
 from lib.state_proxy import StateProxyClient
@@ -24,21 +23,24 @@ import time
 
 
 
-MAX_RUNNING_TIME = 300
+MAX_RUNNING_TIME = 70
 TRIGGER_PORT = 32767
 
 FLEXI_CONTROLLER_HOST = '132.239.17.35'
 
+#POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
+POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=56789 forwarding.flexi_controller --of_port_1=1 --of_port_2=3;'
 
-def send_trigger_packet(length):
+
+def send_trigger_packet():
     """ 
     Sends a reference packet to the controller, from which flow-mods or pkt-outs
     can be constructed. Blocks until the packet is sent.
     
     """
+    util.ping_test(how_many_pings=4, dest_host=config.active_config.source_ip)
     util.run_ssh('iperf -u -c ', config.active_config.dest_ip, 
-                 ' -p ', TRIGGER_PORT, ' -t 2 -l ', length,  
-                 verbose=True, 
+                 ' -p ', TRIGGER_PORT, ' -t 1 -l 12',
                  hostname=config.active_config.source_ip).wait()
     
 
@@ -47,7 +49,7 @@ def start_controller():
     
     cmd = ['export PYTHONPATH="/home/danny/swclone:/home/danny/swclone/lib";',
            'cd ~/swclone;',
-           'python pox/pox.py --no-cli openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
+           POX_CMD
            ]
     
     return util.run_ssh(*cmd, verbose=True, hostname=FLEXI_CONTROLLER_HOST, user='danny')
@@ -88,10 +90,10 @@ class ReceivePktIn(PacketReceiver):
     def __init__(self, state_proxy_client):
         PacketReceiver.__init__(self)
         self._proxy_client = state_proxy_client
+        self._proxy_client.set('pkt_in_stat', (0, None, None))
         self._pkt_in_pps = None
         
     def start(self):
-        self._proxy_client.set('pkt_in_stat', (0, None, None))
         PacketReceiver.start(self)
         
     def stop(self):
@@ -111,11 +113,11 @@ class GenerateFlowMod(PacketSender):
     def __init__(self, expected_pps, state_proxy_client, packet_size=None):
         PacketSender.__init__(self, expected_pps)
         self._proxy_client = state_proxy_client
+        self._proxy_client.set('flow_mod_stat', (0, None, None))
         self._flow_mod_pps = None
         
     def start(self):
         assert self._proxy_client.run('trigger_event_is_ready') 
-        self._proxy_client.set('flow_mod_stat', (0, None, None))
         self._proxy_client.run('start_loop_flow_mod', 1.0/self._expected_pps, MAX_RUNNING_TIME)
         PacketSender.start(self)
         
@@ -134,16 +136,16 @@ class GenerateFlowMod(PacketSender):
 
 class CheckRuleInstallationRate(PacketReceiver):
     
-    def __init__(self, state_proxy_client, flow_stat_interval=20, steady_state_start=60, steady_state_end=120):
+    def __init__(self, state_proxy_client, flow_stat_interval=7, steady_state_start=30, steady_state_end=60):
         PacketReceiver.__init__(self)
-        self._proxy_client = state_proxy_client
         self._flow_stat_interval = flow_stat_interval
         self._steady_state_start = steady_state_start
         self._steady_state_end = steady_state_end
+        self._proxy_client = state_proxy_client
+        self._proxy_client.set('flow_stat_interval', self._flow_stat_interval)
+        self._proxy_client.set('flow_count_dict', {})        
         
     def start(self):
-        self._proxy_client.set('flow_stat_interval', self._flow_stat_interval)
-        self._proxy_client.set('flow_count_dict', {})
         PacketReceiver.start(self)
 
     def get_received_pps(self):
@@ -170,11 +172,12 @@ class GeneratePktOut(PacketSender):
         self._proxy_client = state_proxy_client
         self._pkt_size = packet_size
         self._pkt_out_pps = None
+        self._proxy_client.set('pkt_out_length', self._pkt_size)
+        self._proxy_client.set('pkt_out_stat', (0, None, None))
+        
         
     def start(self):
         assert self._proxy_client.run('trigger_event_is_ready') 
-        self._proxy_client.set('pkt_out_length', self._pkt_size)
-        self._proxy_client.set('pkt_out_stat', (0, None, None))
         self._proxy_client.run('start_loop_pkt_out', 1.0/self._expected_pps, MAX_RUNNING_TIME)
         PacketSender.start(self)
         
@@ -208,15 +211,100 @@ class ReceiveEgress(PacketReceiver):
 
 
 
+def main():
+    
+    for pkt_size in [1500,64]:
+        run(pkt_size)
+
+
+
+def run(packet_size=1500):
+    
+    # Writer initial header to file.
+    result_file = './data/ovs_control_path_profiler_%d.csv' % packet_size
+    with open(result_file, 'w') as f:
+        print >> f, 'ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps'
+    
+    
+    for ingress_pps in [10, 100, 1000]:
+        for flow_mod_pps in [10, 100, 1000]:
+            for pkt_out_pps in [10, 100, 1000]:
+
+                start_controller()
+                
+                while True:
+                    try:
+                        proxy_client = StateProxyClient(FLEXI_CONTROLLER_HOST)
+                        break
+                    except:
+                        print 'Waiting for controller...'
+                        time.sleep(2)
+                
+                proxy_client.reset()
+                print proxy_client.getall()
+                send_trigger_packet()
+
+                # Confirm trigger.
+                while not proxy_client.run('trigger_event_is_ready'):
+                    print proxy_client.getall()
+                    print 'Waiting for trigger...'
+                    time.sleep(2)
+
+                # Set up the pkt generators    
+                ingress = GenerateIngress(ingress_pps, proxy_client, packet_size=packet_size)    
+                flow_mod = GenerateFlowMod(flow_mod_pps, proxy_client)    
+                pkt_out = GeneratePktOut(pkt_out_pps, proxy_client, packet_size=packet_size)
+
+                # Set up pkt receivers.
+                pkt_in = ReceivePktIn(proxy_client)
+                check_rule = CheckRuleInstallationRate(proxy_client)
+                egress = ReceiveEgress(proxy_client)
+                
+                print proxy_client.getall()
+                
+                # Start receiving and sending.
+                for obj in [pkt_in, check_rule, egress, ingress, flow_mod, pkt_out]:
+                    obj.start()
+
+                # Wait.
+                prompt = '(ingress_pps, flow_mod_pps, pkt_out_pps) = '
+                prompt += str((ingress_pps, flow_mod_pps, pkt_out_pps))
+                util.verbose_sleep(MAX_RUNNING_TIME, prompt)
+                    
+                # Stop sending and receiving.
+                for obj in [ingress, flow_mod, pkt_out, pkt_in, check_rule, egress]:
+                    obj.stop()
+                    
+                # Gather data.
+                data_list = [ingress.get_sent_pps(),
+                             flow_mod.get_sent_pps(),
+                             pkt_out.get_sent_pps(),
+                             pkt_in.get_received_pps(),
+                             check_rule.get_received_pps(),
+                             egress.get_received_pps()]
+                
+                # Write csv data.
+                data = ','.join(['%.4f' % pps for pps in data_list])  
+                with open(result_file, 'a') as f:
+                    print >> f, data
+                    
+                print '*' * 80
+                print data
+                print '*' * 80
+                
+                proxy_client.exit()
+                
+                util.verbose_sleep(5, 'Waiting for the next experiment...')
+                
+                
+
 
 def test():
     """ Sanity check. """
     
-#    controller_p = start_controller()
-#    util.verbose_sleep(25, 'Controller is starting...')
-#    
     proxy_client = StateProxyClient(FLEXI_CONTROLLER_HOST)
-    send_trigger_packet(1500)
+    proxy_client.reset()
+    send_trigger_packet()
     
 #    print '*' * 80
 #    print 'ingress -> pkt-in'
@@ -233,7 +321,7 @@ def test():
 #    
 #    print 'sent pps:', ingress.get_sent_pps()
 #    print 'recvd pps:', pkt_in.get_received_pps()
-
+#
 #    print '*' * 80
 #    print 'flow-mod -> rules'
 #    print '*' * 80
@@ -254,12 +342,12 @@ def test():
     print 'pkt-out -> egress'
     print '*' * 80
 
-    pkt_out = GeneratePktOut(200, proxy_client)
+    pkt_out = GeneratePktOut(200, proxy_client, packet_size=1500)
     egress = ReceiveEgress(proxy_client)
 
     egress.start()
     pkt_out.start()
-    util.verbose_sleep(20, 'pkt-out -> egress')
+    util.verbose_sleep(5, 'pkt-out -> egress')
     pkt_out.stop()
     egress.stop()
     
@@ -274,3 +362,7 @@ def test():
 
 if __name__ == '__main__':
     test()
+    
+    
+    
+    
