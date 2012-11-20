@@ -17,13 +17,15 @@ class TcpdumpResult:
 
 class Tcpdump:
     
-    def __init__(self, config_obj):
+    def __init__(self, config_obj, filter='udp'):
         
         if config_obj:
             self.config = config_obj
         else:
             self.config = None
             assert False
+            
+        self._filter = filter
     
     
     
@@ -34,7 +36,7 @@ class Tcpdump:
         """    
         util.run_cmd('tcpdump -i ', self.config.sniff_iface,
                      ' -vnnxStt -s 96 -w ', self.config.tmp_pcap_file, 
-                     ' udp > /tmp/tcpdump.log 2>&1')
+                     ' "%s" > /tmp/tcpdump.log 2>&1' % self._filter)
         time.sleep(2)
     
     

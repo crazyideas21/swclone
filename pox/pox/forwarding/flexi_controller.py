@@ -232,15 +232,17 @@ class LearningSwitch (EventMixin):
         packet = event.parse()
         current_time = time.time() 
                             
-        # There are just packets that we don't care.
+        # There are just packets that we don't care about.
         if not self._is_relevant_packet(event, packet):
             return
 
-        # Count packet-in events.
-        with self.lock:
-            (count, start, _) = self.pkt_in_stat
-            if start is None: start = current_time
-            self.pkt_in_stat = (count + 1, start, current_time)
+        # Count packet-in events only if they're from the pktgen.
+        match = of.ofp_match.from_packet(packet)
+        if match.tp_src == 10000 and match.tp_dst == 9:
+            with self.lock:
+                (count, start, _) = self.pkt_in_stat
+                if start is None: start = current_time
+                self.pkt_in_stat = (count + 1, start, current_time)
                 
         # Learn the packet as per normal if there are no trigger events saved.
         with self.lock:
@@ -285,18 +287,19 @@ class LearningSwitch (EventMixin):
                 msg.actions.append(of.ofp_action_output(port=get_the_other_port(self.trigger_event.port)))
             msg.match.tp_dst = random.randint(10, 65000)
             msg.match.tp_src = random.randint(10, 65000)
-            
+
+            # Stat collection for special flow-mod only.
+            current_time = time.time()
+            with self.lock:
+                (count, start, _) = self.flow_mod_stat
+                if start is None: start = current_time
+                self.flow_mod_stat = (count + 1, start, current_time)
+
         msg.idle_timeout = IDLE_TIMEOUT
         msg.hard_timeout = HARD_TIMEOUT
 
         self._of_send(msg)
         
-        # Stat collection.
-        current_time = time.time()
-        with self.lock:
-            (count, start, _) = self.flow_mod_stat
-            if start is None: start = current_time
-            self.flow_mod_stat = (count + 1, start, current_time)
 
 
 
@@ -330,15 +333,16 @@ class LearningSwitch (EventMixin):
                 assert self.trigger_event
                 msg.actions.append(of.ofp_action_output(port=get_the_other_port(self.trigger_event.port)))
                 msg.in_port = self.trigger_event.port
+
+            # Stat collection for special pkt-out only.
+            current_time = time.time()
+            with self.lock:
+                (count, start, _) = self.pkt_out_stat
+                if start is None: start = current_time
+                self.pkt_out_stat = (count + 1, start, current_time)
             
         self._of_send(msg)        
         
-        # Stat collection.
-        current_time = time.time()
-        with self.lock:
-            (count, start, _) = self.pkt_out_stat
-            if start is None: start = current_time
-            self.pkt_out_stat = (count + 1, start, current_time)
 
 
 

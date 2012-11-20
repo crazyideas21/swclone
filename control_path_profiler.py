@@ -205,7 +205,8 @@ class ReceiveEgress(PacketReceiver):
     
     def __init__(self, _):
         PacketReceiver.__init__(self)
-        self._tcpdump = Tcpdump(config.active_config)
+        self._tcpdump = Tcpdump(config.active_config, 
+                                filter='udp and dst port ' + str(TRIGGER_PORT))
         
     def start(self):
         self._tcpdump.start()
