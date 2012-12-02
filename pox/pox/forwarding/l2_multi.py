@@ -30,13 +30,16 @@ WILDCARD = False # Defaults to False
 # Whether to limit the rate of pkt_in and flow_mod to emulate HP switch.
 RATE_LIMIT = False # Defaults to False
 
+# Straight-forward rate-limiting without lookup table.
+SIMPLE_RATE_LIMITER = False
+
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.revent import *
 from collections import defaultdict
 from pox.openflow.discovery import Discovery
 from pox.lib.util import dpidToStr
-from lib.limiter import Limiter
+from lib.limiter import Limiter, DynamicLimiter
 
 
 log = core.getLogger()
@@ -161,6 +164,7 @@ class Switch (EventMixin):
     self.dpid = None
     self._listeners = None
     
+    self._dyn_limiter = DynamicLimiter()
     self._pkt_in_limiter = Limiter(100)
     self._flow_mod_limiter = Limiter(50)
 
@@ -245,11 +249,14 @@ class Switch (EventMixin):
   def _handle_PacketIn (self, event):
     def flood ():
       """ Floods the packet """
-      msg = of.ofp_packet_out()
-      msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
-      msg.buffer_id = event.ofp.buffer_id
-      msg.in_port = event.port
-      self.connection.send(msg)
+      if (not RATE_LIMIT) or \
+         (RATE_LIMIT and (not SIMPLE_RATE_LIMITER) and self._dyn_limiter.to_forward_packet(DynamicLimiter.PacketType.PktOut)) or \
+         (RATE_LIMIT and SIMPLE_RATE_LIMITER):
+          msg = of.ofp_packet_out()
+          msg.actions.append(of.ofp_action_output(port = of.OFPP_FLOOD))
+          msg.buffer_id = event.ofp.buffer_id
+          msg.in_port = event.port
+          self.connection.send(msg)
 
     def drop ():
       # Kill the buffer
@@ -261,7 +268,8 @@ class Switch (EventMixin):
         self.connection.send(msg)
 
     if RATE_LIMIT:
-        if not self._pkt_in_limiter.to_forward_packet():
+        if (not SIMPLE_RATE_LIMITER and not self._dyn_limiter.to_forward_packet(DynamicLimiter.PacketType.PktIn)) or \
+           (SIMPLE_RATE_LIMITER and not self._pkt_in_limiter.to_forward_packet()):
             return
 
     packet = event.parsed
@@ -419,13 +427,16 @@ class l2_multi (EventMixin):
       sw.connect(event.connection)
 
 
-def launch (wildcard=False, rate_limit=False):
+def launch (wildcard=False, rate_limit=False, simple_rate_limiter=False):
   
   global WILDCARD
   WILDCARD = wildcard  
   
   global RATE_LIMIT
   RATE_LIMIT = rate_limit
+  
+  global SIMPLE_RATE_LIMITER
+  SIMPLE_RATE_LIMITER = simple_rate_limiter
     
   if 'openflow_discovery' not in core.components:
     import pox.openflow.discovery as discovery

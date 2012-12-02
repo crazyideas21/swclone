@@ -1,14 +1,21 @@
-sh killall -9 redis-server
-sh killall -9 distr_redis_clients.py
 sh rm /root/swclone/*.tmp
-h30 sh -c 'cd /root/redis-stable; src/redis-server redis.conf > /dev/null' &
-h31 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h32 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h40 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h41 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h42 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h50 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h51 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-h52 sh -c 'cd /root/swclone; ./distr_redis_clients.py redis' &
-xterm h31
+
+sh killall -9 redis-server
+sh killall -9 simplified_redis.py
+
+h30 sh -c 'ulimit -n 65536; cd /root/redis-stable; src/redis-server redis.conf > /dev/null' &
+sh sleep 2
+h31 sh -c 'cd /root/swclone; ./simplified_redis.py init_server'
+
+h31 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h32 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h40 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h41 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h42 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h50 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h51 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h52 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+
+
+
 

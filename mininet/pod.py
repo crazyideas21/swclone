@@ -68,7 +68,7 @@ def FatTreeNet( **kwargs ):
 def main():
 
     lg.setLogLevel( 'info')
-    c = lambda name: RemoteController(name, defaultIP='172.16.218.1')
+    c = lambda name: RemoteController(name, defaultIP='132.239.17.35')
     net = FatTreeNet(switch=OVSKernelSwitch,
                      controller=c)
 

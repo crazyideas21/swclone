@@ -19,7 +19,7 @@ from lib.tcpdump import Tcpdump
 from lib.state_proxy import StateProxyClient
 import lib.config as config
 import lib.util as util
-import time
+import time, traceback
 
 
 
@@ -31,8 +31,8 @@ FLEXI_CONTROLLER_SSH_PORT = 2222
 FLEXI_CONTROLLER_SSH_USERNAME = 'root'
 
 
-POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
-#POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=56789 forwarding.flexi_controller --of_port_1=1 --of_port_2=2;'
+#POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
+POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=56789 forwarding.flexi_controller --of_port_1=1 --of_port_2=2;'
 
 
 def send_trigger_packet():
@@ -221,95 +221,122 @@ class ReceiveEgress(PacketReceiver):
 
 def main():
     
-    for pkt_size in [1500,64]:
+    for pkt_size in [1500]:
         run(pkt_size)
+
+
+
+def _param_hash(ingress, flow_mod, pkt_out):
+    return ingress * 1000 * 1000 + flow_mod * 1000 + pkt_out
 
 
 
 def run(packet_size=1500):
     
     # Writer initial header to file.
-    result_file = './data/hp_sensitivity_%d_byte.csv' % packet_size
+    #result_file = './data/hp_sensitivity_%d_byte.csv' % packet_size # HP
+    result_file = './data/evs_verify_sensitivity_%d_byte.csv' % packet_size # EVS
     with open(result_file, 'w') as f:
         print >> f, 'ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps,expected_ingress,expected_flow_mod,expected_pkt_out'
     
-    input_list = [10, 100, 400, 700, 1000]  # HP
+    #input_list = [10, 100, 400, 700, 1000]  # HP
     #input_list = [10, 100, 1000]  # OVS
+    
+    input_list = [400, 700]
     
     for ingress_pps in input_list:
         for flow_mod_pps in input_list:
             for pkt_out_pps in input_list:
 
-                start_controller()
-                
-                while True:
+                # Ignore certain params. TODO: Debug.
+#                if packet_size == 1500:
+#                    if _param_hash(ingress_pps, flow_mod_pps, pkt_out_pps) <= \
+#                        _param_hash(400, 1000, 10):
+#                        continue
+
+
+                for attempt in range(3):
                     try:
-                        proxy_client = StateProxyClient(FLEXI_CONTROLLER_HOST)
-                        proxy_client.hello()
+        
+                        start_controller()
+                        
+                        while True:
+                            try:
+                                proxy_client = StateProxyClient(FLEXI_CONTROLLER_HOST)
+                                proxy_client.hello()
+                                break
+                            except:
+                                print 'Waiting for controller...'
+                                time.sleep(2)
+                        
+                        proxy_client.reset()
+                        print proxy_client.getall()
+                        send_trigger_packet()
+        
+                        # Confirm trigger.
+                        while not proxy_client.run('trigger_event_is_ready'):
+                            print proxy_client.getall()
+                            print 'Waiting for trigger...'
+                            time.sleep(2)
+        
+                        # Set up the pkt generators    
+                        ingress = GenerateIngress(ingress_pps, proxy_client, packet_size=packet_size)    
+                        flow_mod = GenerateFlowMod(flow_mod_pps, proxy_client)    
+                        pkt_out = GeneratePktOut(pkt_out_pps, proxy_client, packet_size=packet_size)
+        
+                        # Set up pkt receivers.
+                        pkt_in = ReceivePktIn(proxy_client)
+                        check_rule = CheckRuleInstallationRate(proxy_client)
+                        egress = ReceiveEgress(proxy_client)
+                        
+                        print proxy_client.getall()
+                        
+                        # Start receiving and sending.
+                        for obj in [pkt_in, check_rule, egress, ingress, flow_mod, pkt_out]:
+                            obj.start()
+        
+                        # Wait.
+                        prompt = '(ingress_pps, flow_mod_pps, pkt_out_pps) = '
+                        prompt += str((ingress_pps, flow_mod_pps, pkt_out_pps))
+                        util.verbose_sleep(MAX_RUNNING_TIME, prompt)
+                            
+                        # Stop sending and receiving.
+                        for obj in [ingress, flow_mod, pkt_out, pkt_in, check_rule, egress]:
+                            obj.stop()
+                            
+                        # Gather data.
+                        data_list = [ingress.get_sent_pps(),
+                                     flow_mod.get_sent_pps(),
+                                     pkt_out.get_sent_pps(),
+                                     pkt_in.get_received_pps(),
+                                     check_rule.get_received_pps(),
+                                     egress.get_received_pps(),
+                                     ingress_pps,
+                                     flow_mod_pps, 
+                                     pkt_out_pps]
+                        
+                        # Write csv data.
+                        data = ','.join(['%.4f' % pps for pps in data_list])  
+                        with open(result_file, 'a') as f:
+                            print >> f, data
+                            
+                        print '*' * 80
+                        print data
+                        print '*' * 80
+                        
+                        proxy_client.exit()                                                
+                        util.verbose_sleep(5, 'Waiting for the next experiment...')
                         break
+                
                     except:
-                        print 'Waiting for controller...'
-                        time.sleep(2)
-                
-                proxy_client.reset()
-                print proxy_client.getall()
-                send_trigger_packet()
-
-                # Confirm trigger.
-                while not proxy_client.run('trigger_event_is_ready'):
-                    print proxy_client.getall()
-                    print 'Waiting for trigger...'
-                    time.sleep(2)
-
-                # Set up the pkt generators    
-                ingress = GenerateIngress(ingress_pps, proxy_client, packet_size=packet_size)    
-                flow_mod = GenerateFlowMod(flow_mod_pps, proxy_client)    
-                pkt_out = GeneratePktOut(pkt_out_pps, proxy_client, packet_size=packet_size)
-
-                # Set up pkt receivers.
-                pkt_in = ReceivePktIn(proxy_client)
-                check_rule = CheckRuleInstallationRate(proxy_client)
-                egress = ReceiveEgress(proxy_client)
-                
-                print proxy_client.getall()
-                
-                # Start receiving and sending.
-                for obj in [pkt_in, check_rule, egress, ingress, flow_mod, pkt_out]:
-                    obj.start()
-
-                # Wait.
-                prompt = '(ingress_pps, flow_mod_pps, pkt_out_pps) = '
-                prompt += str((ingress_pps, flow_mod_pps, pkt_out_pps))
-                util.verbose_sleep(MAX_RUNNING_TIME, prompt)
-                    
-                # Stop sending and receiving.
-                for obj in [ingress, flow_mod, pkt_out, pkt_in, check_rule, egress]:
-                    obj.stop()
-                    
-                # Gather data.
-                data_list = [ingress.get_sent_pps(),
-                             flow_mod.get_sent_pps(),
-                             pkt_out.get_sent_pps(),
-                             pkt_in.get_received_pps(),
-                             check_rule.get_received_pps(),
-                             egress.get_received_pps(),
-                             ingress_pps,
-                             flow_mod_pps,
-                             pkt_out_pps]
-                
-                # Write csv data.
-                data = ','.join(['%.4f' % pps for pps in data_list])  
-                with open(result_file, 'a') as f:
-                    print >> f, data
-                    
-                print '*' * 80
-                print data
-                print '*' * 80
-                
-                proxy_client.exit()
-                
-                util.verbose_sleep(5, 'Waiting for the next experiment...')
-                
+                        
+                        proxy_client.exit()
+                        
+                        if attempt == 2:
+                            raise
+                        else:
+                            with open('./data/CRASH.log', 'a') as crash_f:
+                                print >> crash_f, traceback.format_exc()
                 
 
 

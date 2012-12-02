@@ -32,6 +32,12 @@ HARD_TIMEOUT = 30  # Default: 30
 # If a pkt arrives with the following dst port, it is saved for subsequent use.
 TRIGGER_PORT = 32767
 
+USE_LIMITER = True # Default: False
+if USE_LIMITER:
+    from lib.limiter import DynamicLimiter, Limiter
+
+
+
 
 def get_the_other_port(this_port):
     
@@ -93,6 +99,10 @@ class LearningSwitch (EventMixin):
     def reset(self):
         
         self.lock.acquire()
+
+        if USE_LIMITER:
+            self.flow_mod_limiter = Limiter(50)
+            self.dyn_limiter = DynamicLimiter()
         
         # OF event stats, in the form of (pkt_count, start_time, end_time).        
         self.pkt_in_stat = (0, None, None)
@@ -238,11 +248,12 @@ class LearningSwitch (EventMixin):
 
         # Count packet-in events only if they're from the pktgen.
         match = of.ofp_match.from_packet(packet)
-        if match.tp_src == 10000 and match.tp_dst == 9:
-            with self.lock:
-                (count, start, _) = self.pkt_in_stat
-                if start is None: start = current_time
-                self.pkt_in_stat = (count + 1, start, current_time)
+        if (not USE_LIMITER) or (USE_LIMITER and self.dyn_limiter.to_forward_packet(DynamicLimiter.PacketType.PktIn)):
+            if match.tp_src == 10000 and match.tp_dst == 9:
+                with self.lock:
+                    (count, start, _) = self.pkt_in_stat
+                    if start is None: start = current_time
+                    self.pkt_in_stat = (count + 1, start, current_time)
                 
         # Learn the packet as per normal if there are no trigger events saved.
         with self.lock:
@@ -298,7 +309,8 @@ class LearningSwitch (EventMixin):
         msg.idle_timeout = IDLE_TIMEOUT
         msg.hard_timeout = HARD_TIMEOUT
 
-        self._of_send(msg)
+        if (not USE_LIMITER) or (USE_LIMITER and self.flow_mod_limiter.to_forward_packet()):
+            self._of_send(msg)
         
 
 
@@ -340,8 +352,9 @@ class LearningSwitch (EventMixin):
                 (count, start, _) = self.pkt_out_stat
                 if start is None: start = current_time
                 self.pkt_out_stat = (count + 1, start, current_time)
-            
-        self._of_send(msg)        
+        
+        if (not USE_LIMITER) or (USE_LIMITER and self.dyn_limiter.to_forward_packet(DynamicLimiter.PacketType.PktOut)):
+            self._of_send(msg)        
         
 
 
