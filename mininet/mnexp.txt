@@ -1,20 +1,23 @@
-sh rm /root/swclone/*.tmp
+sh rm -f /root/swclone/*.tmp
 
 sh killall -9 redis-server
-sh killall -9 simplified_redis.py
+sh killall -9 async_redis.py
 
 h30 sh -c 'ulimit -n 65536; cd /root/redis-stable; src/redis-server redis.conf > /dev/null' &
 sh sleep 2
-h31 sh -c 'cd /root/swclone; ./simplified_redis.py init_server'
+h31 sh -c 'cd /root/swclone; ./async_redis.py init_server'
 
-h31 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h32 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h40 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h41 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h42 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h50 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h51 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
-h52 sh -c 'cd /root/swclone; ./simplified_redis.py redis' &
+h31 sh -c 'cd /root/swclone; ./async_redis.py redis' 
+
+
+
+h32 sh -c 'cd /root/swclone; ./async_redis.py redis' &
+h40 sh -c 'cd /root/swclone; ./async_redis.py redis' &
+h41 sh -c 'cd /root/swclone; ./async_redis.py redis' &
+h42 sh -c 'cd /root/swclone; ./async_redis.py redis' &
+h50 sh -c 'cd /root/swclone; ./async_redis.py redis' &
+h51 sh -c 'cd /root/swclone; ./async_redis.py redis' &
+h52 sh -c 'cd /root/swclone; ./async_redis.py redis' &
 
 
 

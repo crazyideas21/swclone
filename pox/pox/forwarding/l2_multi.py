@@ -33,6 +33,9 @@ RATE_LIMIT = False # Defaults to False
 # Straight-forward rate-limiting without lookup table.
 SIMPLE_RATE_LIMITER = False
 
+# Should we do pkt-out after flow-mod?
+PKT_OUT = True
+
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.revent import *
@@ -185,7 +188,8 @@ class Switch (EventMixin):
         msg.idle_timeout = 10
         msg.hard_timeout = 30        
     msg.actions.append(of.ofp_action_output(port = port))
-    msg.buffer_id = buf
+    if PKT_OUT:
+        msg.buffer_id = buf
     if RATE_LIMIT: 
         if self._flow_mod_limiter.to_forward_packet():
             switch.connection.send(msg) 
@@ -427,7 +431,7 @@ class l2_multi (EventMixin):
       sw.connect(event.connection)
 
 
-def launch (wildcard=False, rate_limit=False, simple_rate_limiter=False):
+def launch (wildcard=False, rate_limit=False, simple_rate_limiter=False, pkt_out=True):
   
   global WILDCARD
   WILDCARD = wildcard  
@@ -437,6 +441,9 @@ def launch (wildcard=False, rate_limit=False, simple_rate_limiter=False):
   
   global SIMPLE_RATE_LIMITER
   SIMPLE_RATE_LIMITER = simple_rate_limiter
+  
+  global PKT_OUT
+  PKT_OUT = pkt_out
     
   if 'openflow_discovery' not in core.components:
     import pox.openflow.discovery as discovery

@@ -24,14 +24,16 @@ from mininet.util import createLink
 from mininet.topo import Topo
 from mininet.topo import Node as TopoNode
 
+import sys
 
-class MyTopo( Topo ):
+
+class FatTreeTopo( Topo ):
 
     def __init__( self, enable_all = True ):
         "Create custom topo."
 
         # Add default members to class.
-        super( MyTopo, self ).__init__()
+        super( FatTreeTopo, self ).__init__()
 
         # Add hosts.
         for i in [30, 40, 50]:
@@ -59,18 +61,48 @@ class MyTopo( Topo ):
 
 
 
+class LinearTopo( Topo ):
+
+    def __init__( self, enable_all = True ):
+
+        super( LinearTopo, self ).__init__()
+
+        self.add_node(30, TopoNode(is_switch=False))
+        self.add_node(31, TopoNode(is_switch=False))        
+        self.add_node(1,  TopoNode(is_switch=True))
+
+        self.add_edge(30, 1)
+        self.add_edge(31, 1)
+
+        self.enable_all()
+
+
+
+
 
 
 def FatTreeNet( **kwargs ):
-    topo = MyTopo()
+    topo = FatTreeTopo()
     return Mininet( topo, **kwargs )
+
+
+def LinearNet( **kwargs ):
+    topo = LinearTopo()
+    return Mininet(topo, **kwargs)
+
 
 def main():
 
     lg.setLogLevel( 'info')
     c = lambda name: RemoteController(name, defaultIP='132.239.17.35')
-    net = FatTreeNet(switch=OVSKernelSwitch,
-                     controller=c)
+
+    if 'fattree' in sys.argv:
+        net = FatTreeNet(switch=OVSKernelSwitch, controller=c)
+    elif 'linear' in sys.argv:
+        net = LinearNet(switch=OVSKernelSwitch, controller=c)
+    else:
+        print >> sys.stderr, 'Specify either "fattree" or "linear" as the sole argument.'
+        return
 
     net.start()
     CLI(net)

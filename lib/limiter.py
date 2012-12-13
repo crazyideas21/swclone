@@ -110,7 +110,7 @@ class DynamicLimiter:
         if egress_rate == np.nan:
             egress_delivered = 1.0
         else:
-            egress_delivered = pkt_out_rate / egress_rate 
+            egress_delivered = egress_rate / pkt_out_rate 
         
         # Because of this loss, we need to deliver more pkt-outs to achieve HP's
         # egress.

@@ -7,6 +7,11 @@
 redis-stable/
 ovs-1.7.0/
 .AppleDouble/
+*.class
+oflops/
+jython-cache/
+tmp/
+.DS_Store
 
 # Packages
 *.egg

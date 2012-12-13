@@ -1,27 +1,45 @@
-#!/usr/bin/python
-
+#!/usr/bin/jython
 '''
 Created on Nov 29, 2012
 
 @author: danny
 '''
-import multiprocessing, time, socket, subprocess, random, sys, os
+
+from __future__ import with_statement # Jython Hack    
+from threading import Thread as Process # Jython Hack
+from Queue import Queue # Jython Hack
+
+#from multiprocessing import Queue, Process # Python
+
+
+import time, socket, subprocess, random, sys, os
 import cPickle as pickle
 import lib.util as util
 
 
 CONFIGURATION = 'mn'
+FLOW_TYPE = 'mouse'
+TWO_MACHINES = True
 
 if CONFIGURATION == 'hp':
     # List of hosts available for the experiment, as seen by the experiment's
-    # network (i.e. in-band). 
-    REDIS_SERVER_IN_BAND = '10.81.20.1' 
-    REDIS_SERVER_OUT_OF_BAND = '172.22.14.213'
+    # network (i.e. in-band).
+    if TWO_MACHINES: 
+        REDIS_SERVER_IN_BAND = '10.66.8.1' 
+        REDIS_SERVER_OUT_OF_BAND = '172.22.14.207'
+    else:
+        REDIS_SERVER_IN_BAND = '10.81.20.1' 
+        REDIS_SERVER_OUT_OF_BAND = '172.22.14.213'
 
 elif CONFIGURATION == 'tor':  # Top-of-rack switch as hardware baseline.
-    REDIS_SERVER_IN_BAND = '172.22.14.213'
-    REDIS_SERVER_OUT_OF_BAND = '172.22.14.213'
-    
+    if TWO_MACHINES:
+        REDIS_SERVER_IN_BAND = '172.22.14.207'
+        REDIS_SERVER_OUT_OF_BAND = '172.22.14.207'
+    else:
+        REDIS_SERVER_IN_BAND = '172.22.14.213'
+        REDIS_SERVER_OUT_OF_BAND = '172.22.14.213'
+        
+
 elif CONFIGURATION == 'mn':  # Mininet
     REDIS_SERVER_IN_BAND = '10.0.0.30'
     REDIS_SERVER_OUT_OF_BAND = '10.0.0.30'
@@ -29,22 +47,35 @@ elif CONFIGURATION == 'mn':  # Mininet
 else:
     assert False    
 
-# Expected gap in milliseconds between successive requests. Actual value may
-# differ.
-#EXPECTED_GAP_MS = 50 # Mouse flows
-EXPECTED_GAP_MS = 50 # Elephant flows
 
-# How many bytes to put/get on the redis server.
-#DATA_LENGTH = 64 # Mouse flows
-DATA_LENGTH = 1*1000*1000 # Elephant flows
+
+if FLOW_TYPE == 'mouse':
+
+    # Expected gap in milliseconds between successive requests. Actual value may
+    # differ.
+    EXPECTED_GAP_MS = 50 # Defaults to 50 
+        
+    # How many bytes to put/get on the redis server.
+    DATA_LENGTH = 64 
+
+    MAX_RUNNING_TIME = 70    
+    INTERESTING_TIME_START = 30 
+    INTERESTING_TIME_END = 60  
+
+elif FLOW_TYPE == 'elephant':
+
+    EXPECTED_GAP_MS = 50  # Defaults to 50
+    DATA_LENGTH = 1 * 1000 * 1000 
+
+    MAX_RUNNING_TIME = 100
+    INTERESTING_TIME_START = 20 
+    INTERESTING_TIME_END = 90  
 
 # How many hosts run the redis clients.
-REDIS_CLIENT_HOST_COUNT = 8
-
-MAX_RUNNING_TIME = 100
-INTERESTING_TIME_START = 20 # 30 for mouse flows, 20 for elephant
-INTERESTING_TIME_END = 90  # 60 for mouse flows, 90 for elephant
-
+if TWO_MACHINES:
+    REDIS_CLIENT_HOST_COUNT = 1
+else:
+    REDIS_CLIENT_HOST_COUNT = 8
 
 REDIS_PORT = 6379
 
@@ -146,26 +177,28 @@ def redis_client_main():
     assert subprocess.call('ulimit -n 65536', shell=True) == 0
 
     start_time = time.time()
-    start_end_times_queue = multiprocessing.Queue()
+    start_end_times_queue = Queue()
     client_proc_list = []
     
     while time.time() - start_time <= MAX_RUNNING_TIME:
 
         overhead_time_start = time.time()
 
-        client_proc = multiprocessing.Process(target=redis_process,
-                                              args=(start_end_times_queue,))
+        client_proc = Process(target=redis_process,
+                              args=(start_end_times_queue,))
         client_proc.daemon = True
         client_proc.start()
 
         client_proc_list.append(client_proc)
-        client_proc_list = filter(lambda p: p.is_alive(), client_proc_list)
+        client_proc_list = filter(lambda p: p.isAlive(), client_proc_list)
         
         sleep_time = EXPECTED_GAP_MS / 1000.0 * REDIS_CLIENT_HOST_COUNT - (time.time() - overhead_time_start)
-        time.sleep(random.uniform(sleep_time * 0.8, sleep_time * 1.2))
+        if sleep_time > 0:
+            time.sleep(random.uniform(sleep_time * 0.8, sleep_time * 1.2))
 
     for p in client_proc_list:
-        os.kill(p.pid, 9)
+        if hasattr(p, 'pid'): # Hack: p may actually be a thread
+            os.kill(p.pid, 9)
         
     start_end_times_list = []
     while not start_end_times_queue.empty():
@@ -176,7 +209,7 @@ def redis_client_main():
     
     print 'Done'
 
-
+    
 
 
 def redis_process(start_end_times_queue):

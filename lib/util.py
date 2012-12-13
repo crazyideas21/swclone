@@ -1,3 +1,5 @@
+from __future__ import with_statement
+
 import math, subprocess, traceback, datetime, sys, time, warnings, threading
 import lib.config as config
 
