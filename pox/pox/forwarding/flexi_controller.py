@@ -17,10 +17,12 @@ import pox.openflow.libopenflow_01 as of
 from pox.lib.revent import *
 from pox.lib.util import dpidToStr
 from pox.lib.util import str_to_bool
-import time, random, traceback, threading
-from lib.util import dictify, Logger, func_cache, pretty_dict
+import time, random, traceback, threading, re
+from lib.util import dictify, Logger, func_cache, pretty_dict, run_ssh
 from lib.state_proxy import StateProxyServer
 from lib.looper import Looper
+import subprocess
+
 
 
 mylog = Logger('flexi_controller.log')
@@ -32,10 +34,11 @@ HARD_TIMEOUT = 30  # Default: 30
 # If a pkt arrives with the following dst port, it is saved for subsequent use.
 TRIGGER_PORT = 32767
 
-USE_LIMITER = True # Default: False
+USE_LIMITER = False # Default: False
 if USE_LIMITER:
     from lib.limiter import DynamicLimiter, Limiter
 
+FLOW_TABLE_FILE = 'flow_table.repr'
 
 
 
@@ -110,7 +113,7 @@ class LearningSwitch (EventMixin):
         self.pkt_out_stat = (0, None, None)
 
         # Maps time at which switch is polled for stats to flow_count.
-        self.flow_stat_interval = 20
+        self.flow_stat_interval = 5
         self.flow_count_dict = {} 
         
         # A special packet that "triggers" the special operations. Subsequent
@@ -198,7 +201,29 @@ class LearningSwitch (EventMixin):
         mylog('flow_count_list =', flow_count_list)
         with self.lock:
             self.flow_count_dict[time.time()] = flow_count_list[0]
+            (flow_mod_count, _, _) = self.flow_mod_stat
 
+        # Find how many rules were promoted.        
+        current_hw_table = set([(f.match._tp_src, f.match._tp_dst) for f in event.stats if f.table_id == 0])
+        current_sw_table = set([(f.match._tp_src, f.match._tp_dst) for f in event.stats if f.table_id == 2])
+        if not hasattr(self, 'prev_sw_table'):
+            self.prev_sw_table = set()
+        promoted_set = self.prev_sw_table & current_hw_table
+        self.prev_sw_table = current_sw_table 
+        
+        # Find how many packets sent/received on eth1
+        sender_output = run_ssh('ifconfig eth1', hostname='172.22.14.208', stdout=subprocess.PIPE, stderr=subprocess.PIPE, verbose=False).communicate()[0]
+        sent_KB = int(re.search('TX bytes:(\d+)', sender_output).group(1)) / 1000
+        receiver_output = run_ssh('ifconfig eth1', hostname='172.22.14.207', stdout=subprocess.PIPE, stderr=subprocess.PIPE, verbose=False).communicate()[0]
+        received_KB = int(re.search('RX bytes:(\d+)', receiver_output).group(1)) / 1000
+
+        # Print space-separated result
+        print time.time(), len(current_hw_table), len(current_sw_table), len(promoted_set), sent_KB, flow_mod_count, received_KB
+
+#        # Also write all the flow entries to file.
+#        flow_entries = [(time.time(), f.table_id, f.match._tp_src, f.match._tp_dst, flow_mod_count) for f in event.stats]
+#        with open(FLOW_TABLE_FILE, 'a') as table_f:
+#            print >> table_f, repr(flow_entries)
 
 
 
@@ -299,12 +324,12 @@ class LearningSwitch (EventMixin):
             msg.match.tp_dst = random.randint(10, 65000)
             msg.match.tp_src = random.randint(10, 65000)
 
-            # Stat collection for special flow-mod only.
-            current_time = time.time()
-            with self.lock:
-                (count, start, _) = self.flow_mod_stat
-                if start is None: start = current_time
-                self.flow_mod_stat = (count + 1, start, current_time)
+            
+        current_time = time.time()
+        with self.lock:
+            (count, start, _) = self.flow_mod_stat
+            if start is None: start = current_time
+            self.flow_mod_stat = (count + 1, start, current_time)
 
         msg.idle_timeout = IDLE_TIMEOUT
         msg.hard_timeout = HARD_TIMEOUT
@@ -407,12 +432,15 @@ class l2_learning (EventMixin):
 
 
 
-def launch (transparent=False, of_port_1='32', of_port_2='34'):
+def launch (transparent=False, of_port_1='32', of_port_2='34', rate_limit=False):
     """
     Starts an L2 learning switch.
     """
     SWITCH_PORT_LIST.append(int(of_port_1))
     SWITCH_PORT_LIST.append(int(of_port_2))
+    
+    global USE_LIMITER
+    USE_LIMITER = rate_limit
     
     core.registerNew(l2_learning, str_to_bool(transparent))
     

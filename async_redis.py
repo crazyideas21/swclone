@@ -14,7 +14,7 @@ import cPickle as pickle
 import lib.util as util
 
 
-CONFIGURATION = 'mn'
+CONFIGURATION = 'hp'
 FLOW_TYPE = 'mouse'
 TWO_MACHINES = True
 
@@ -58,9 +58,9 @@ if FLOW_TYPE == 'mouse':
     # How many bytes to put/get on the redis server.
     DATA_LENGTH = 64 
 
-    MAX_RUNNING_TIME = 70    
-    INTERESTING_TIME_START = 30 
-    INTERESTING_TIME_END = 60  
+    MAX_RUNNING_TIME = 130 # default 70
+    INTERESTING_TIME_START = 60 # default 30
+    INTERESTING_TIME_END = 120 # default 60  
 
 elif FLOW_TYPE == 'elephant':
 
