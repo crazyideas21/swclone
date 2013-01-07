@@ -24,6 +24,9 @@ Depends on openflow.discovery
 Works with openflow.spanning_tree
 """
 
+# Whether to learn incoming flows and install the corresponding rules.
+LEARNING = True # Defaults to True
+
 # Whether to install wildcarded rules and set unlimited timeout.
 WILDCARD = False # Defaults to False
 
@@ -166,16 +169,18 @@ class Switch (EventMixin):
     self.ports = None
     self.dpid = None
     self._listeners = None
-    
-    self._dyn_limiter = DynamicLimiter()
-    self._pkt_in_limiter = Limiter(100)
-    self._flow_mod_limiter = Limiter(50)
+
+    if RATE_LIMIT:    
+        self._dyn_limiter = DynamicLimiter()
+        self._pkt_in_limiter = Limiter(100)
+        self._flow_mod_limiter = Limiter(50)
 
 
   def __repr__ (self):
     return dpidToStr(self.dpid)
 
   def _install (self, switch, port, match, buf = -1):
+      
     msg = of.ofp_flow_mod()    
     if WILDCARD:
         _copy_attr(match, msg.match, 
@@ -188,6 +193,8 @@ class Switch (EventMixin):
         msg.idle_timeout = 10
         msg.hard_timeout = 30        
     msg.actions.append(of.ofp_action_output(port = port))
+    print 'Installing flow from', msg.match.dl_src, 'to', msg.match.dl_dst, 
+    print 'with output port', port
     if PKT_OUT:
         msg.buffer_id = buf
     if RATE_LIMIT: 
@@ -283,6 +290,10 @@ class Switch (EventMixin):
 
     if packet.type == packet.LLDP_TYPE:
       drop()
+      return
+  
+    if not LEARNING:
+      flood()
       return
 
     #print packet.src,"*",loc,oldloc
@@ -431,19 +442,22 @@ class l2_multi (EventMixin):
       sw.connect(event.connection)
 
 
-def launch (wildcard=False, rate_limit=False, simple_rate_limiter=False, pkt_out=True):
+def launch (learning=True, wildcard=False, rate_limit=False, simple_rate_limiter=False, pkt_out=True):
+  
+  global LEARNING
+  LEARNING = eval(str(learning))
   
   global WILDCARD
-  WILDCARD = wildcard  
+  WILDCARD = eval(str(wildcard))  
   
   global RATE_LIMIT
-  RATE_LIMIT = rate_limit
+  RATE_LIMIT = eval(str(rate_limit))
   
   global SIMPLE_RATE_LIMITER
-  SIMPLE_RATE_LIMITER = simple_rate_limiter
+  SIMPLE_RATE_LIMITER = eval(str(simple_rate_limiter))
   
   global PKT_OUT
-  PKT_OUT = pkt_out
+  PKT_OUT = eval(str(pkt_out))
     
   if 'openflow_discovery' not in core.components:
     import pox.openflow.discovery as discovery

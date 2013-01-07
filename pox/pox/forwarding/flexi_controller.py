@@ -201,24 +201,24 @@ class LearningSwitch (EventMixin):
         mylog('flow_count_list =', flow_count_list)
         with self.lock:
             self.flow_count_dict[time.time()] = flow_count_list[0]
-            (flow_mod_count, _, _) = self.flow_mod_stat
-
-        # Find how many rules were promoted.        
-        current_hw_table = set([(f.match._tp_src, f.match._tp_dst) for f in event.stats if f.table_id == 0])
-        current_sw_table = set([(f.match._tp_src, f.match._tp_dst) for f in event.stats if f.table_id == 2])
-        if not hasattr(self, 'prev_sw_table'):
-            self.prev_sw_table = set()
-        promoted_set = self.prev_sw_table & current_hw_table
-        self.prev_sw_table = current_sw_table 
-        
-        # Find how many packets sent/received on eth1
-        sender_output = run_ssh('ifconfig eth1', hostname='172.22.14.208', stdout=subprocess.PIPE, stderr=subprocess.PIPE, verbose=False).communicate()[0]
-        sent_KB = int(re.search('TX bytes:(\d+)', sender_output).group(1)) / 1000
-        receiver_output = run_ssh('ifconfig eth1', hostname='172.22.14.207', stdout=subprocess.PIPE, stderr=subprocess.PIPE, verbose=False).communicate()[0]
-        received_KB = int(re.search('RX bytes:(\d+)', receiver_output).group(1)) / 1000
-
-        # Print space-separated result
-        print time.time(), len(current_hw_table), len(current_sw_table), len(promoted_set), sent_KB, flow_mod_count, received_KB
+#            (flow_mod_count, _, _) = self.flow_mod_stat
+#
+#        # Find how many rules were promoted.        
+#        current_hw_table = set([(f.match._tp_src, f.match._tp_dst) for f in event.stats if f.table_id == 0])
+#        current_sw_table = set([(f.match._tp_src, f.match._tp_dst) for f in event.stats if f.table_id == 2])
+#        if not hasattr(self, 'prev_sw_table'):
+#            self.prev_sw_table = set()
+#        promoted_set = self.prev_sw_table & current_hw_table
+#        self.prev_sw_table = current_sw_table 
+#        
+#        # Find how many packets sent/received on eth1
+#        sender_output = run_ssh('ifconfig eth1', hostname='172.22.14.208', stdout=subprocess.PIPE, stderr=subprocess.PIPE, verbose=False).communicate()[0]
+#        sent_KB = int(re.search('TX bytes:(\d+)', sender_output).group(1)) / 1000
+#        receiver_output = run_ssh('ifconfig eth1', hostname='172.22.14.207', stdout=subprocess.PIPE, stderr=subprocess.PIPE, verbose=False).communicate()[0]
+#        received_KB = int(re.search('RX bytes:(\d+)', receiver_output).group(1)) / 1000
+#
+#        # Print space-separated result
+#        print time.time(), len(current_hw_table), len(current_sw_table), len(promoted_set), sent_KB, flow_mod_count, received_KB
 
 #        # Also write all the flow entries to file.
 #        flow_entries = [(time.time(), f.table_id, f.match._tp_src, f.match._tp_dst, flow_mod_count) for f in event.stats]

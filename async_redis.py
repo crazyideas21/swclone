@@ -14,7 +14,7 @@ import cPickle as pickle
 import lib.util as util
 
 
-CONFIGURATION = 'hp'
+CONFIGURATION = 'monaco'
 FLOW_TYPE = 'mouse'
 TWO_MACHINES = True
 
@@ -44,6 +44,19 @@ elif CONFIGURATION == 'mn':  # Mininet
     REDIS_SERVER_IN_BAND = '10.0.0.30'
     REDIS_SERVER_OUT_OF_BAND = '10.0.0.30'
     CPU_CORE_COUNT = 2
+    
+elif CONFIGURATION == 'monaco':
+    REDIS_SERVER_IN_BAND = '192.168.100.67'
+    REDIS_SERVER_OUT_OF_BAND = '172.22.16.67'
+    CPU_CORE_COUNT = 16
+    
+    
+elif CONFIGURATION == 'monaco-tor':
+    REDIS_SERVER_IN_BAND = '172.22.16.67'
+    REDIS_SERVER_OUT_OF_BAND = '172.22.16.67'
+    CPU_CORE_COUNT = 16    
+    
+    
 else:
     assert False    
 
@@ -53,7 +66,7 @@ if FLOW_TYPE == 'mouse':
 
     # Expected gap in milliseconds between successive requests. Actual value may
     # differ.
-    EXPECTED_GAP_MS = 10 # Defaults to 50 
+    EXPECTED_GAP_MS = 50 # Defaults to 50 
         
     # How many bytes to put/get on the redis server.
     DATA_LENGTH = 64 

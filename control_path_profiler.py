@@ -8,6 +8,8 @@ Profiles the entire control path. In particular:
 Each of these tests are modularized. They can be permutated arbitrarily to
 simulate emergent behaviors.
 
+To be run on the same host as tcpdump.
+
 Written by: Danny Y. Huang
 
 Nov 14, 2012
@@ -26,13 +28,21 @@ import time, traceback
 MAX_RUNNING_TIME = 70
 TRIGGER_PORT = 32767
 
-FLEXI_CONTROLLER_HOST = '132.239.17.35'
-FLEXI_CONTROLLER_SSH_PORT = 2222
+## HP
+#FLEXI_CONTROLLER_HOST = '132.239.17.35'
+#FLEXI_CONTROLLER_SSH_PORT = 2222
+#FLEXI_CONTROLLER_SSH_USERNAME = 'root'
+
+
+# Monaco
+FLEXI_CONTROLLER_HOST = '172.22.16.67'
+FLEXI_CONTROLLER_SSH_PORT = 22
 FLEXI_CONTROLLER_SSH_USERNAME = 'root'
 
 
+
 #POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
-POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=56789 forwarding.flexi_controller --of_port_1=1 --of_port_2=2;'
+POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=36633 forwarding.flexi_controller --of_port_1=1 --of_port_2=2;'
 
 
 def send_trigger_packet():
@@ -164,7 +174,10 @@ class CheckRuleInstallationRate(PacketReceiver):
         for stat_time in flow_count_dict:
             if steady_time_start <= stat_time <= steady_time_end:
                 steady_flow_count_list.append(flow_count_dict[stat_time])
-        return sum(steady_flow_count_list) / 10.0 / len(steady_flow_count_list)
+        if steady_flow_count_list:
+            return sum(steady_flow_count_list) / 10.0 / len(steady_flow_count_list)
+        else:
+            return 0.0
         
         
 
@@ -235,14 +248,16 @@ def run(packet_size=1500):
     
     # Writer initial header to file.
     #result_file = './data/hp_sensitivity_%d_byte.csv' % packet_size # HP
-    result_file = './data/evs_verify_sensitivity_%d_byte.csv' % packet_size # EVS
+    #result_file = './data/evs_verify_sensitivity_%d_byte.csv' % packet_size # EVS
+    result_file = './data/monaco_sensitivity_%d_byte.csv' % packet_size # MONACO
     with open(result_file, 'w') as f:
         print >> f, 'ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps,expected_ingress,expected_flow_mod,expected_pkt_out'
     
     #input_list = [10, 100, 400, 700, 1000]  # HP
     #input_list = [10, 100, 1000]  # OVS
     
-    input_list = [400, 700]
+    #input_list = [10, 100, 400, 700, 1000]
+    input_list = [10,30,100,320,330]
     
     for ingress_pps in input_list:
         for flow_mod_pps in input_list:
