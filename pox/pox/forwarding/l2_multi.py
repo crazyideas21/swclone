@@ -45,7 +45,11 @@ from pox.lib.revent import *
 from collections import defaultdict
 from pox.openflow.discovery import Discovery
 from pox.lib.util import dpidToStr
-from lib.limiter import Limiter, DynamicLimiter
+
+try:
+    from lib.limiter import Limiter, DynamicLimiter
+except ImportError:
+    pass
 
 
 log = core.getLogger()

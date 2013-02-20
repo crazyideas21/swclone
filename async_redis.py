@@ -14,9 +14,9 @@ import cPickle as pickle
 import lib.util as util
 
 
-CONFIGURATION = 'monaco'
-FLOW_TYPE = 'mouse'
-TWO_MACHINES = True
+CONFIGURATION = 'quanta'
+FLOW_TYPE = 'elephant'
+TWO_MACHINES = False
 
 if CONFIGURATION == 'hp':
     # List of hosts available for the experiment, as seen by the experiment's
@@ -56,6 +56,16 @@ elif CONFIGURATION == 'monaco-tor':
     REDIS_SERVER_OUT_OF_BAND = '172.22.16.67'
     CPU_CORE_COUNT = 16    
     
+
+elif CONFIGURATION == 'quanta':
+    REDIS_SERVER_IN_BAND = '192.168.100.5'
+    REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
+    CPU_CORE_COUNT = 8    
+
+elif CONFIGURATION == 'quanta-tor':
+    REDIS_SERVER_IN_BAND = '127.0.0.1'
+    REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
+    CPU_CORE_COUNT = 8    
     
 else:
     assert False    
@@ -109,6 +119,8 @@ def main():
 
 def init_redis_server():
     """ Sets the variable we're going to get later. """
+
+    print 'Initialzing the redis server...'
 
     arg_list = ['*3', 
                 '$3', 'set', 
@@ -200,6 +212,7 @@ def data_analysis():
 def redis_client_main():
 
     assert subprocess.call('ulimit -n 65536', shell=True) == 0
+    print 'Starting client main().'
 
     result_queue = Queue()
     sleep_time = EXPECTED_GAP_MS / 1000.0 * REDIS_CLIENT_HOST_COUNT * CPU_CORE_COUNT
