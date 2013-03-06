@@ -6,11 +6,12 @@ import lib.config as config
 
 class Logger:
     
-    def __init__(self, log_file, reset=True):
+    def __init__(self, log_file, reset=True, write_log_to_file=True):
         
         self._log_file = log_file
         self._base_time = time.time()
         self._lock = threading.Lock()
+        self._write_log_to_file = write_log_to_file
         
         if reset:
             with open(self._log_file, 'w') as f:
@@ -22,6 +23,9 @@ class Logger:
         
     
     def write(self, *log_str_args):
+    
+        if not self._write_log_to_file:
+            return
     
         log_str_args = [str(e) for e in log_str_args]
         log_str = ' '.join(log_str_args)

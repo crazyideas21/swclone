@@ -22,10 +22,10 @@ from lib.util import dictify, Logger, func_cache, pretty_dict, run_ssh
 from lib.state_proxy import StateProxyServer
 from lib.looper import Looper
 import subprocess
+import Queue
 
 
-
-mylog = Logger('flexi_controller.log')
+mylog = Logger('flexi_controller.log', write_log_to_file=False)
 
 SWITCH_PORT_LIST = []
 IDLE_TIMEOUT = 10  # Default: 10
@@ -53,7 +53,10 @@ def get_the_other_port(this_port):
 
 
 
-
+# Reset file that contains times of pkt_in and flow_mod events.
+TIMING_EVENT_FILE = 'of_timings.csv'
+with open(TIMING_EVENT_FILE, 'w') as f:
+    pass
 
 
 
@@ -111,6 +114,10 @@ class LearningSwitch (EventMixin):
         self.pkt_in_stat = (0, None, None)
         self.flow_mod_stat = (0, None, None)
         self.pkt_out_stat = (0, None, None)
+        
+        # OF event time queue. Each contains a tuple (time, packet).
+        self.pkt_in_queue = Queue.Queue()
+        self.flow_mod_queue = Queue.Queue()
 
         # Maps time at which switch is polled for stats to flow_count.
         self.flow_stat_interval = 5
@@ -231,7 +238,23 @@ class LearningSwitch (EventMixin):
 
         while True:
 
+            # Send flow stat to switch
             self._of_send(of.ofp_stats_request(body=of.ofp_flow_stats_request()))
+            
+            # Save timing events to file.
+            with open(TIMING_EVENT_FILE, 'a') as timing_f:
+                for (event_name, queue) in [('pkt_in', self.pkt_in_queue), 
+                                            ('flow_mod', self.flow_mod_queue)]:
+                    while not queue.empty():
+                        try:
+                            (start_time, packet) = queue.get()
+                        except Queue.Empty():
+                            break
+                        match = of.ofp_match.from_packet(packet)
+                        print >> timing_f, '%.8f,%s,%s,%s' % (start_time,
+                                                              event_name,
+                                                              match.tp_src,
+                                                              match.tp_dst)
             
             sleep_time = 0
             while True:
@@ -263,13 +286,15 @@ class LearningSwitch (EventMixin):
         
         
     def _handle_pkt_in_helper(self, event):
-        
+
         packet = event.parse()
         current_time = time.time() 
                             
         # There are just packets that we don't care about.
         if not self._is_relevant_packet(event, packet):
             return
+
+        self.pkt_in_queue.put((current_time, packet))
 
         # Count packet-in events only if they're from the pktgen.
         match = of.ofp_match.from_packet(packet)
@@ -323,7 +348,6 @@ class LearningSwitch (EventMixin):
                 msg.actions.append(of.ofp_action_output(port=get_the_other_port(self.trigger_event.port)))
             msg.match.tp_dst = random.randint(10, 65000)
             msg.match.tp_src = random.randint(10, 65000)
-
             
         current_time = time.time()
         with self.lock:
@@ -337,7 +361,7 @@ class LearningSwitch (EventMixin):
         if (not USE_LIMITER) or (USE_LIMITER and self.flow_mod_limiter.to_forward_packet()):
             self._of_send(msg)
         
-
+        self.flow_mod_queue.put((current_time, event.parse()))
 
 
 
@@ -432,12 +456,14 @@ class l2_learning (EventMixin):
 
 
 
-def launch (transparent=False, of_port_1='32', of_port_2='34', rate_limit=False):
+def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False):
     """
     Starts an L2 learning switch.
     """
     SWITCH_PORT_LIST.append(int(of_port_1))
     SWITCH_PORT_LIST.append(int(of_port_2))
+    
+    print 'Flexi Controller using ports', SWITCH_PORT_LIST
     
     global USE_LIMITER
     USE_LIMITER = rate_limit

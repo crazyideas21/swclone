@@ -42,7 +42,7 @@ FLEXI_CONTROLLER_SSH_USERNAME = 'root'
 
 
 #POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=45678 forwarding.flexi_controller --of_port_1=32 --of_port_2=34;'
-POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=36633 forwarding.flexi_controller --of_port_1=1 --of_port_2=2;'
+POX_CMD = 'python pox/pox.py --no-cli log.level --CRITICAL openflow.of_01 --port=36633 forwarding.flexi_controller --of_port_1=8 --of_port_2=20;'
 
 
 def send_trigger_packet():

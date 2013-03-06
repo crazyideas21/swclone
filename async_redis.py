@@ -14,58 +14,34 @@ import cPickle as pickle
 import lib.util as util
 
 
-CONFIGURATION = 'quanta'
-FLOW_TYPE = 'elephant'
-TWO_MACHINES = False
+CONFIGURATION = 'ovs'
+FLOW_TYPE = 'mouse'
+REDIS_CLIENT_HOST_COUNT = 1
+CPU_CORE_COUNT = 1
+
 
 if CONFIGURATION == 'hp':
-    # List of hosts available for the experiment, as seen by the experiment's
-    # network (i.e. in-band).
-    if TWO_MACHINES: 
-        REDIS_SERVER_IN_BAND = '10.66.8.1' 
-        REDIS_SERVER_OUT_OF_BAND = '172.22.14.207'
-    else:
-        REDIS_SERVER_IN_BAND = '10.81.20.1' 
-        REDIS_SERVER_OUT_OF_BAND = '172.22.14.213'
-        
-    CPU_CORE_COUNT = 4
+    REDIS_SERVER_IN_BAND = '192.168.100.2' 
+    REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
+    CLIENT_INTERFACE = 'eth1'
+    SERVER_INTERFACE = 'eth2' 
 
-elif CONFIGURATION == 'tor':  # Top-of-rack switch as hardware baseline.
-    if TWO_MACHINES:
-        REDIS_SERVER_IN_BAND = '172.22.14.207'
-        REDIS_SERVER_OUT_OF_BAND = '172.22.14.207'
-    else:
-        REDIS_SERVER_IN_BAND = '172.22.14.213'
-        REDIS_SERVER_OUT_OF_BAND = '172.22.14.213'
-    
-    CPU_CORE_COUNT = 4
-
-elif CONFIGURATION == 'mn':  # Mininet
-    REDIS_SERVER_IN_BAND = '10.0.0.30'
-    REDIS_SERVER_OUT_OF_BAND = '10.0.0.30'
-    CPU_CORE_COUNT = 2
-    
 elif CONFIGURATION == 'monaco':
-    REDIS_SERVER_IN_BAND = '192.168.100.67'
-    REDIS_SERVER_OUT_OF_BAND = '172.22.16.67'
-    CPU_CORE_COUNT = 16
+    REDIS_SERVER_IN_BAND = '192.168.100.1'
+    REDIS_SERVER_OUT_OF_BAND = '192.168.100.1'
     
-    
-elif CONFIGURATION == 'monaco-tor':
-    REDIS_SERVER_IN_BAND = '172.22.16.67'
-    REDIS_SERVER_OUT_OF_BAND = '172.22.16.67'
-    CPU_CORE_COUNT = 16    
-    
-
+        
 elif CONFIGURATION == 'quanta':
-    REDIS_SERVER_IN_BAND = '192.168.100.5'
+    REDIS_SERVER_IN_BAND = '192.168.100.2'
     REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
-    CPU_CORE_COUNT = 8    
+    CLIENT_INTERFACE = 'eth4'
+    SERVER_INTERFACE = 'eth6'
 
-elif CONFIGURATION == 'quanta-tor':
-    REDIS_SERVER_IN_BAND = '127.0.0.1'
+elif CONFIGURATION == 'ovs':
+    REDIS_SERVER_IN_BAND = '192.168.100.4'
     REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
-    CPU_CORE_COUNT = 8    
+    CLIENT_INTERFACE = 'veth4'
+    SERVER_INTERFACE = 'veth6'
     
 else:
     assert False    
@@ -84,6 +60,8 @@ if FLOW_TYPE == 'mouse':
     MAX_RUNNING_TIME = 130 # default 70
     INTERESTING_TIME_START = 60 # default 30
     INTERESTING_TIME_END = 120 # default 60  
+    
+    MAX_QUERY_SECONDS = 2
 
 elif FLOW_TYPE == 'elephant':
 
@@ -94,11 +72,8 @@ elif FLOW_TYPE == 'elephant':
     INTERESTING_TIME_START = 20 
     INTERESTING_TIME_END = 90  
 
-# How many hosts run the redis clients.
-if TWO_MACHINES:
-    REDIS_CLIENT_HOST_COUNT = 1
-else:
-    REDIS_CLIENT_HOST_COUNT = 8
+    MAX_QUERY_SECONDS = 3600
+
 
 REDIS_PORT = 6379
 
@@ -110,8 +85,10 @@ def main():
         init_redis_server()
     elif 'data' in sys.argv:
         data_analysis()
-    elif 'redis' in sys.argv:
+    elif 'client' in sys.argv:
         redis_client_main()
+    elif 'tcpdump' in sys.argv:
+        tcpdump()
     else:
         raise RuntimeError('Bad arguments:' + str(sys.argv))
 
@@ -120,6 +97,8 @@ def main():
 def init_redis_server():
     """ Sets the variable we're going to get later. """
 
+    check_ulimit()
+    
     print 'Initialzing the redis server...'
 
     arg_list = ['*3', 
@@ -141,14 +120,32 @@ def init_redis_server():
 
 
 
+def tcpdump():
+    
+    client_p = subprocess.Popen('rm /tmp/client.pcap; tcpdump -i %s -w /tmp/client.pcap >/dev/null 2>&1' % CLIENT_INTERFACE, shell=True)
+    server_p = subprocess.Popen('rm /tmp/server.pcap; tcpdump -vi %s -w /tmp/server.pcap' % SERVER_INTERFACE, shell=True)
+    
+    try:
+        time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+    
+    # Send Control+C to both tcpdump processes.
+    client_p.send_signal(2)
+    server_p.send_signal(2)    
+
+    print 'TCPDUMP completed.'
+
+
+
 
 def data_analysis():
     
     start_end_times = []
     
-    for path in os.listdir('.'):
+    for path in os.listdir('data'):
         if path.startswith('async-') and path.endswith('.tmp'):
-            with open(path) as f:
+            with open('data/' + path) as f:
                 start_end_times += pickle.load(f)
             print 'Loaded', path
             
@@ -173,6 +170,14 @@ def data_analysis():
     print 'Client gap: (mean, stdev) =', util.get_mean_and_stdev(gap_list),
     print 'median =', gap_list[len(gap_list)/2]
     
+    # Save start_time list and gap list.
+    with open('data/start_times.csv', 'w') as start_time_f:
+        for start_time_v in start_time_list:
+            print >> start_time_f, '%.8f' % start_time_v
+    with open('data/gaps.csv', 'w') as gap_f:
+        for (v, p) in util.make_cdf_table(gap_list):
+            print >> gap_f, '%f,%f' % (v, p)
+    
     # Calculate latency and bandwidth.
     latency_list = []
     bandwidth_list = []
@@ -187,13 +192,23 @@ def data_analysis():
         bandwidth_list.append(bandwidth * 8.0 / 1000000.0)  # Mbps
     
     # Write to file.
+    print 'Writing to data/async_redis_latency.csv...'
     with open('data/async_redis_latency.csv', 'w') as f:
         for (v, p) in util.make_cdf_table(latency_list):
             print >> f, '%.10f,%.10f' % (v, p)
+            
+    print 'Writing to data/async_redis_bw.csv...'
     with open('data/async_redis_bw.csv', 'w') as f:
         for (v, p) in util.make_cdf_table(bandwidth_list):
             print >> f, '%.10f,%.10f' % (v, p)
-        
+    
+    # Analyze timings of OF events.
+    
+    subprocess.call('cp of_timings.csv data/; cp /tmp/client.pcap /tmp/server.pcap data/', shell=True)
+
+    
+    import timing_analysis
+    timing_analysis.main('data/client.pcap', 'data/of_timings.csv', 'data/server.pcap')
 
 
 
@@ -202,8 +217,12 @@ def data_analysis():
 
 
 
-
-
+def check_ulimit():
+    """ Make sure that ulimit is set manually before experiment. """
+    
+    p = subprocess.Popen('ulimit -n', shell=True, stdout=subprocess.PIPE)
+    limit_n = p.communicate()[0]
+    assert limit_n.strip() == '65536'
 
 
 
@@ -211,8 +230,8 @@ def data_analysis():
 
 def redis_client_main():
 
-    assert subprocess.call('ulimit -n 65536', shell=True) == 0
-    print 'Starting client main().'
+    check_ulimit()
+    print 'Starting client main(), using flow type "%s" and configuration "%s".' % (FLOW_TYPE, CONFIGURATION)
 
     result_queue = Queue()
     sleep_time = EXPECTED_GAP_MS / 1000.0 * REDIS_CLIENT_HOST_COUNT * CPU_CORE_COUNT
@@ -236,8 +255,8 @@ def redis_client_main():
             finished_process_count += 1
         
     # Write start-end times to file.
-    subprocess.call('rm -f async-*.tmp', shell=True)
-    with open('async-' + str(random.random()) + '.tmp', 'w') as f:
+    subprocess.call('rm -f data/async-*.tmp', shell=True)
+    with open('data/async-' + str(random.random()) + '.tmp', 'w') as f:
         pickle.dump(start_end_times_list, f)
     
     print 'Done'
@@ -251,8 +270,12 @@ def redis_client_main():
 def _redis_client_process(gap, result_queue):
     """ Spawns redis clients with 'gap' second intervals. """
 
+    # Prevent all client processes to start at the same time.
+    time.sleep(random.uniform(1,3))
+
     master_start_time = time.time()
     last_redis_start_time = 0
+    last_query_timeout_check_time = 0
     select_timeout_start_time = None
     
     conn_list = []
@@ -266,7 +289,7 @@ def _redis_client_process(gap, result_queue):
             conn_list = []
             print os.getpid(), 'Max running time reached.'
             break
-        
+                
         # Make sure that at least a given number of seconds (i.e. 'gap) have
         # elapsed since we last started a new client connection.
         if current_time - last_redis_start_time >= gap:
@@ -283,6 +306,18 @@ def _redis_client_process(gap, result_queue):
             if current_time - select_timeout_start_time > 10: 
                 print >> sys.stderr, os.getpid(), 'selected timed out on', len(conn_list), 'connections'
                 break
+
+        # We only permit a maximum of MAX_QUERY_SECONDS per client query. Check
+        # every second.
+        if current_time - last_query_timeout_check_time >= 1:
+            last_query_timeout_check_time = current_time
+            remove_count = 0
+            for conn in conn_list[:]:
+                if current_time - conn.start_time >= MAX_QUERY_SECONDS:
+                    conn.closed = True
+                    remove_count += 1
+            if remove_count > 0:
+                print >> sys.stderr, os.getpid(), 'removed', remove_count, 'timed out queries.'
         
     # Send the start-end time list back to the main process.
     result_queue.put(start_end_time_list)

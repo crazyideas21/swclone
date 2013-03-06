@@ -32,6 +32,14 @@ log = core.getLogger()
 # We don't want to flood immediately when a switch connects.
 FLOOD_DELAY = 5
 
+WILDCARD = False
+
+def _copy_attr(src, dst, attr_list):
+    for attr in attr_list:
+        attr_value = getattr(src, attr)
+        setattr(dst, attr, attr_value)
+
+
 
 class LearningSwitch (EventMixin):
   """
@@ -101,6 +109,7 @@ class LearningSwitch (EventMixin):
         log.warning("Not flooding unbuffered packet on %s",
                     dpidToStr(event.dpid))
         return
+      print 'zzzz Floading', packet
       msg = of.ofp_packet_out()
       if time.time() - self.connection.connect_time > FLOOD_DELAY:
         # Only flood if we've been connected for a little while...
@@ -158,9 +167,17 @@ class LearningSwitch (EventMixin):
         log.debug("installing flow for %s.%i -> %s.%i" %
                   (packet.src, event.port, packet.dst, port))
         msg = of.ofp_flow_mod()
-        msg.match = of.ofp_match.from_packet(packet)
-        msg.idle_timeout = 10
-        msg.hard_timeout = 30
+        match = of.ofp_match.from_packet(packet)
+        if WILDCARD:
+            _copy_attr(match, msg.match, 
+                       ['in_port', 'dl_src', 'dl_dst', 'dl_vlan', 'dl_vlan_pcp',
+                        'dl_type', 'nw_tos', 'nw_src', 'nw_dst'])
+            msg.idle_timeout = 0
+            msg.hard_timeout = 0
+        else:
+            msg.match = match
+            msg.idle_timeout = 10
+            msg.hard_timeout = 30
         msg.actions.append(of.ofp_action_output(port = port))
         msg.buffer_id = event.ofp.buffer_id # 6a
         self.connection.send(msg)
@@ -178,8 +195,15 @@ class l2_learning (EventMixin):
     LearningSwitch(event.connection, self.transparent)
 
 
-def launch (transparent=False):
+def launch (transparent=False, wildcard=False):
   """
   Starts an L2 learning switch.
   """
+  global WILDCARD
+  WILDCARD = eval(str(wildcard))
+  if WILDCARD:
+      print '*' * 80
+      print 'Wildcard mode'
+      print '*' * 80
+  
   core.registerNew(l2_learning, str_to_bool(transparent))

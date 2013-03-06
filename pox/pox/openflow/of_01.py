@@ -444,6 +444,9 @@ class OFCaptureSocket (CaptureSocket):
       l = len(self._sbuf)
 
 
+from delayed_action import DelayedAction
+
+
 class Connection (EventMixin):
   """
   A Connection object represents a single TCP session with an
@@ -487,6 +490,8 @@ class Connection (EventMixin):
 
     self.ofnexus = _dummyOFNexus
     self.sock = sock
+    self._sock_lock = threading.Lock()
+    self._delayed_action = DelayedAction()
     self.buf = ''
     Connection.ID += 1
     self.ID = Connection.ID
@@ -512,11 +517,13 @@ class Connection (EventMixin):
       #self.msg("closing connection")
       pass
     try:
-      self.sock.shutdown(socket.SHUT_RDWR)
+        with self._sock_lock:
+            self.sock.shutdown(socket.SHUT_RDWR)
     except:
       pass
     try:
-      self.sock.close()
+        with self._sock_lock:
+            self.sock.close()
     except:
       pass
 
@@ -548,7 +555,8 @@ class Connection (EventMixin):
     except:
       pass
     try:
-      self.sock.shutdown(socket.SHUT_RDWR)
+        with self._sock_lock:
+            self.sock.shutdown(socket.SHUT_RDWR)
     except:
       pass
     try:
@@ -567,16 +575,23 @@ class Connection (EventMixin):
     library to it and get the expected result, for example.
     """
     if self.disconnected: return
+    data_bytes = data
     if type(data) is not bytes:
       if hasattr(data, 'pack'):
-        data = data.pack()
+        data_bytes = data.pack()
 
+    self._delayed_action.add_job(data, self._delayed_send, data_bytes)
+
+
+  def _delayed_send(self, data):
+    
     if deferredSender.sending:
       log.debug("deferred sender is sending!")
       deferredSender.send(self, data)
       return
     try:
-      l = self.sock.send(data)
+      with self._sock_lock:
+        l = self.sock.send(data)
       if l != len(data):
         self.msg("Didn't send complete buffer.")
         data = data[l:]
@@ -590,6 +605,8 @@ class Connection (EventMixin):
         self.msg("Socket error: " + strerror)
         self.disconnect()
 
+
+
   def read (self):
     """
     Read data from this connection.  Generally this is just called by the
@@ -597,7 +614,8 @@ class Connection (EventMixin):
 
     Note: This function will block if data is not available.
     """
-    d = self.sock.recv(2048)
+    with self._sock_lock:
+        d = self.sock.recv(2048)
     if len(d) == 0:
       return False
     self.buf += d
@@ -619,7 +637,7 @@ class Connection (EventMixin):
       l = len(self.buf)
       try:
         h = handlers[ofp_type]
-        h(self, msg)
+        self._delayed_action.add_job(msg, h, self, msg)
       except:
         log.exception("%s: Exception while handling OpenFlow message:\n" +
                       "%s %s", self,self,
