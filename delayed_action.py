@@ -1,9 +1,14 @@
 '''
+Delay OF events based on real switches. 
+
+Prerequesite: You need to set the environment variable 'DELAY_PROFILE' as 'hp',
+'monaco', 'quanta', or 'noop'. Empty values are not accepted.
+
 Created on Mar 1, 2013
 
 @author: danny
 '''
-import threading, traceback, sys, time, random, struct
+import threading, traceback, sys, time, random, struct, os
 from Queue import PriorityQueue, Empty
 import multiprocessing 
 from pox.openflow.libopenflow_01 import ofp_packet_in, ofp_flow_mod
@@ -13,7 +18,14 @@ import pcap
 
 REDIS_PORT = 6379
 
-DELAY_PROFILE = 'quanta'
+# If True, then we don't impose any delay at all.
+NO_OP = False
+
+# Some artificial value we have to subtract off the overhead.
+MAGIC_OVERHEAD = 0
+
+# Parse the environment variable.
+DELAY_PROFILE = str(os.environ.get('DELAY_PROFILE')).lower()
 
 if DELAY_PROFILE == 'hp':
     MAGIC_OVERHEAD = 0.015
@@ -21,8 +33,10 @@ elif DELAY_PROFILE == 'monaco':
     MAGIC_OVERHEAD = 0.003
 elif DELAY_PROFILE == 'quanta':
     MAGIC_OVERHEAD = 0.010
-else:
-    raise RuntimeError
+elif DELAY_PROFILE == 'noop':
+    NO_OP = True
+else:    
+    raise RuntimeError('Invalid DELAY_PROFILE.')
 
 
 
@@ -86,6 +100,9 @@ class DelayedAction(threading.Thread):
         self._pq_lock = threading.RLock()
         self._exec_lock = threading.RLock()
 
+        if NO_OP:
+            return
+
         # Capture ingress SYN/ACK traffic into queue in a separate process.
         self._pkt_queue = multiprocessing.Queue()
         pcap_p = multiprocessing.Process(target=_pcap_process,
@@ -112,6 +129,9 @@ class DelayedAction(threading.Thread):
 
 
     def _get_delay(self, filter_obj):
+
+        if NO_OP:
+            return 0
 
         if isinstance(filter_obj, ofp_packet_in):
             return self._pkt_in_profiler.get_delay()
@@ -156,6 +176,9 @@ class DelayedAction(threading.Thread):
         
         
     def run(self):
+        
+        if NO_OP:
+            return
         
         while True:
         
