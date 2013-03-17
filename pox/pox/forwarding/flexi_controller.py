@@ -205,6 +205,7 @@ class LearningSwitch (EventMixin):
         """
         flow_count_list = [len([f for f in event.stats if f.table_id == i]) \
                            for i in [0,1,2]]
+        print 'flow_count_list =', flow_count_list # TODO: xxx
         mylog('flow_count_list =', flow_count_list)
         with self.lock:
             self.flow_count_dict[time.time()] = flow_count_list[0]
@@ -456,7 +457,7 @@ class l2_learning (EventMixin):
 
 
 
-def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False):
+def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False, permanent=False):
     """
     Starts an L2 learning switch.
     """
@@ -466,7 +467,14 @@ def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False)
     print 'Flexi Controller using ports', SWITCH_PORT_LIST
     
     global USE_LIMITER
-    USE_LIMITER = rate_limit
+    USE_LIMITER = eval(str(rate_limit))
+    
+    if eval(str(permanent)):
+        global IDLE_TIMEOUT
+        global HARD_TIMEOUT
+        IDLE_TIMEOUT = 0
+        HARD_TIMEOUT = 0
+        print '[!] Rules never time out, as permanent = True.' 
     
     core.registerNew(l2_learning, str_to_bool(transparent))
     
