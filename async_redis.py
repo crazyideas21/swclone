@@ -27,8 +27,8 @@ if CONFIGURATION == 'hp':
     SERVER_INTERFACE = 'eth2' 
 
 elif CONFIGURATION == 'monaco':
-    REDIS_SERVER_IN_BAND = '192.168.100.1'
-    REDIS_SERVER_OUT_OF_BAND = '192.168.100.1'
+    REDIS_SERVER_IN_BAND = '192.168.100.2'
+    REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
     
         
 elif CONFIGURATION == 'quanta':
@@ -57,25 +57,41 @@ if FLOW_TYPE == 'mouse':
     # How many bytes to put/get on the redis server.
     DATA_LENGTH = 64 
 
+    # Max number of flows to start.
+    MAX_QUERY_COUNT = 10000000 # inf
+
     MAX_RUNNING_TIME = 130 # default 70
     INTERESTING_TIME_START = 60 # default 30
     INTERESTING_TIME_END = 120 # default 60  
     
+    # How long each Redis query time out.
     MAX_QUERY_SECONDS = 2
+    
+    # At least how fast a query should receive data.
+    MIN_RECV_Mbps = 0
+    
+    SHOW_STATS = False
 
 elif FLOW_TYPE == 'elephant':
 
-    EXPECTED_GAP_MS = 50  # Defaults to 50
-    DATA_LENGTH = 1 * 1000 * 1000 
+    EXPECTED_GAP_MS = 500
+    DATA_LENGTH = 50 * 1000 * 1000 
 
-    MAX_RUNNING_TIME = 100
-    INTERESTING_TIME_START = 20 
-    INTERESTING_TIME_END = 90  
+    MAX_QUERY_COUNT = 1000
 
-    MAX_QUERY_SECONDS = 3600
+    MAX_RUNNING_TIME = 360000 # inf
+    INTERESTING_TIME_START = 0 
+    INTERESTING_TIME_END = 360000 # inf
+
+    MAX_QUERY_SECONDS = 360000 # inf
+    MIN_RECV_Mbps = 2
+    
+    SHOW_STATS = True
+
 
 
 REDIS_PORT = 6379
+
 
 
 
@@ -140,11 +156,17 @@ def tcpdump():
 
 
 def data_analysis():
-    
+
     start_end_times = []
     
+    # Load experiment data file
+    try:
+        data_file = 'async-' + os.environ['EXP_NAME']
+    except KeyError:
+        data_file = None
     for path in os.listdir('data'):
-        if path.startswith('async-') and path.endswith('.tmp'):
+        if (path == data_file) or \
+            (data_file is None and path.startswith('async-') and path.endswith('.tmp')):
             with open('data/' + path) as f:
                 start_end_times += pickle.load(f)
             print 'Loaded', path
@@ -231,7 +253,13 @@ def check_ulimit():
 def redis_client_main():
 
     check_ulimit()
+    try:
+        exp_name = os.environ['EXP_NAME']
+    except KeyError:
+        exp_name = str(random.random()) + '.tmp'
+    
     print 'Starting client main(), using flow type "%s" and configuration "%s".' % (FLOW_TYPE, CONFIGURATION)
+    print 'Experiment name:', exp_name
 
     result_queue = Queue()
     sleep_time = EXPECTED_GAP_MS / 1000.0 * REDIS_CLIENT_HOST_COUNT * CPU_CORE_COUNT
@@ -253,10 +281,11 @@ def redis_client_main():
         else:
             start_end_times_list += result_queue.get()
             finished_process_count += 1
+
         
     # Write start-end times to file.
     subprocess.call('rm -f data/async-*.tmp', shell=True)
-    with open('data/async-' + str(random.random()) + '.tmp', 'w') as f:
+    with open('data/async-' + exp_name, 'w') as f:
         pickle.dump(start_end_times_list, f)
     
     print 'Done'
@@ -278,6 +307,8 @@ def _redis_client_process(gap, result_queue):
     last_query_timeout_check_time = 0
     select_timeout_start_time = None
     
+    query_count = 0
+    
     conn_list = []
     start_end_time_list = []
     
@@ -289,12 +320,15 @@ def _redis_client_process(gap, result_queue):
             conn_list = []
             print os.getpid(), 'Max running time reached.'
             break
-                
+
         # Make sure that at least a given number of seconds (i.e. 'gap) have
         # elapsed since we last started a new client connection.
-        if current_time - last_redis_start_time >= gap:
-            conn_list.append(RedisClientConnection())
+        if current_time - last_redis_start_time >= gap and query_count < MAX_QUERY_COUNT:
+            conn_list.append(RedisClientConnection(query_count))
             last_redis_start_time = current_time
+            query_count += 1
+            if SHOW_STATS:
+                print 'Started query #', (query_count - 1)
         
         # Async I/O
         if _redis_client_select(conn_list, start_end_time_list):
@@ -304,20 +338,26 @@ def _redis_client_process(gap, result_queue):
             if select_timeout_start_time is None:
                 select_timeout_start_time = current_time
             if current_time - select_timeout_start_time > 10: 
-                print >> sys.stderr, os.getpid(), 'selected timed out on', len(conn_list), 'connections'
+                print >> sys.stderr, os.getpid(), 'select timed out on', len(conn_list), 'connections'
                 break
 
-        # We only permit a maximum of MAX_QUERY_SECONDS per client query. Check
-        # every second.
-        if current_time - last_query_timeout_check_time >= 1:
+        # We only permit a maximum of MAX_QUERY_SECONDS per client query, and some
+        # minimum recv rate. Check every five seconds.
+        if current_time - last_query_timeout_check_time >= 5:
             last_query_timeout_check_time = current_time
-            remove_count = 0
+            removed_cxn_id_list = []
             for conn in conn_list[:]:
-                if current_time - conn.start_time >= MAX_QUERY_SECONDS:
+                if (current_time - conn.start_time >= MAX_QUERY_SECONDS) or\
+                    (conn.rbuf_length > 0 and (conn.rbuf_length - conn.rbuf_last_length) * 8 / 5.0 / 1000000 < MIN_RECV_Mbps):
                     conn.closed = True
-                    remove_count += 1
-            if remove_count > 0:
-                print >> sys.stderr, os.getpid(), 'removed', remove_count, 'timed out queries.'
+                    removed_cxn_id_list += [conn.cxn_id]
+                else:
+                    conn.rbuf_last_length = conn.rbuf_length
+                    
+            if removed_cxn_id_list:
+                print >> sys.stderr, os.getpid(), 'removed %s timed out queries.' % len(removed_cxn_id_list)
+                if SHOW_STATS:
+                    print >> sys.stderr, 'Removed', removed_cxn_id_list
         
     # Send the start-end time list back to the main process.
     result_queue.put(start_end_time_list)
@@ -357,6 +397,13 @@ def _redis_client_select(conn_list, start_end_time_list):
     for conn in finished_conns:
         start_end_time_list.append((conn.start_time, conn.end_time))
         conn_list.remove(conn)
+        if SHOW_STATS:
+            if conn.end_time:
+                time_delta = conn.end_time - conn.start_time
+                print 'Query done in', int(time_delta), 'seconds at', 
+                print '%.3f Mbps.' % (DATA_LENGTH * 8 / time_delta / 1000000.0)
+            else:
+                print 'Query timed out.' 
     
     return True
     
@@ -365,10 +412,15 @@ def _redis_client_select(conn_list, start_end_time_list):
 
 class RedisClientConnection:
     
-    def __init__(self):
+    def __init__(self, cxn_id):
         
-        self.rbuf = ''
-        self.wbuf = 'get x\r\n'
+        self.cxn_id = cxn_id
+        
+        self.wbuf = 'get x\r\n'        
+        self.rbuf_length = 0
+        self.rbuf_last_read = ''
+        
+        self.rbuf_last_length = 0 # Used to calculate recv speed
         
         self.start_time = time.time()
         self.end_time = None
@@ -408,13 +460,17 @@ class RedisClientConnection:
     
     def handle_read(self):
         try:
-            data = self.sock.recv(32768)
+            data = self.sock.recv(1048576)
         except IOError:
             self.closed = True
             return
 
         if data:
-            self.rbuf += data
+            # Keep only the last 1024 bytes into the read buffer.
+            self.rbuf_last_read += data
+            self.rbuf_last_read = self.rbuf_last_read[-1024:]
+            self.rbuf_length += len(data)
+            #print 'zzzz Connection', self.cxn_id, 'got', len(data), 'bytes'
             if self._done_reading():
                 self.end_time = time.time()
                 self.closed = True                    
@@ -423,7 +479,7 @@ class RedisClientConnection:
     
     
     def _done_reading(self):
-        return self.rbuf > DATA_LENGTH and self.rbuf.endswith('\r\n')
+        return self.rbuf_length > DATA_LENGTH and self.rbuf_last_read.endswith('\r\n')
             
     
     def __del__(self):

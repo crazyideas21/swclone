@@ -12,6 +12,7 @@ oflops/
 jython-cache/
 tmp/
 .DS_Store
+boomslang/
 
 # Packages
 *.egg

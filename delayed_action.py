@@ -24,23 +24,26 @@ NO_OP = False
 # Some artificial value we have to subtract off the overhead.
 MAGIC_OVERHEAD = 0
 
+DELAY_PROFILE_TYPE = 'original'  # either 'original' or 'modified'
+
 # Parse the environment variable.
 DELAY_PROFILE = str(os.environ.get('DELAY_PROFILE')).lower()
 
 if DELAY_PROFILE == 'hp':
-    MAGIC_OVERHEAD = 0.015
+    #MAGIC_OVERHEAD = 0.015
+    pass
 elif DELAY_PROFILE == 'monaco':
-    MAGIC_OVERHEAD = 0.003
+    #MAGIC_OVERHEAD = 0.003
+    pass
 elif DELAY_PROFILE == 'quanta':
-    MAGIC_OVERHEAD = 0.010
+    #MAGIC_OVERHEAD = 0.010
+    pass
 elif DELAY_PROFILE == 'noop':
     NO_OP = True
 else:    
     raise RuntimeError('Invalid DELAY_PROFILE.')
 
 
-
-overhead_f = open('ovs_overhead.tmp', 'w')
 
 
 class DelayProfiler:
@@ -111,8 +114,8 @@ class DelayedAction(threading.Thread):
         pcap_p.start()
         
         # Introduce packet delays based on real performance.
-        self._pkt_in_profiler = DelayProfiler('./profile/%s-pkt-in.csv' % DELAY_PROFILE)
-        self._flow_mod_profiler = DelayProfiler('./profile/%s-flow-mod.csv' % DELAY_PROFILE)
+        self._pkt_in_profiler = DelayProfiler('./profile/%s/%s-pkt-in.csv' % (DELAY_PROFILE_TYPE, DELAY_PROFILE))
+        self._flow_mod_profiler = DelayProfiler('./profile/%s/%s-flow-mod.csv' % (DELAY_PROFILE_TYPE, DELAY_PROFILE))
         
         # Part of the ovs overhead that has not been accounted for.
         self._unused_ovs_overhead = 0
@@ -122,7 +125,7 @@ class DelayedAction(threading.Thread):
         self.start()
 
         print '*' * 80
-        print 'Delayed Action, using profile "%s".' % DELAY_PROFILE
+        print 'Delayed Action, using "profile %s"-"%s".' % (DELAY_PROFILE_TYPE, DELAY_PROFILE)
         print '*' * 80
 
 
@@ -165,7 +168,7 @@ class DelayedAction(threading.Thread):
                 ovs_overhead += self._unused_ovs_overhead
                 delay = delay - ovs_overhead
                 if delay <= 0:
-                    #self._unused_ovs_overhead += 0.0 - delay TODO: xxx 
+                    self._unused_ovs_overhead += 0.0 - delay #TODO: Should we do this? 
                     return self._execute(func, *args, **kwargs)
 
         # Add event to job queue.

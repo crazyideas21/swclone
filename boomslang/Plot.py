@@ -1,37 +1,52 @@
 import pylab
-from matplotlib import pyplot
 import sys
 from PlotInfo import PlotInfo
 from PlotLayout import *
 import copy
+from LabelProperties import LabelProperties
+from Inset import Inset
+from Marker import Marker
+from LineStyle import LineStyle
+from Grid import Grid
+from boomslang_exceptions import BoomslangPlotConfigurationException
+from boomslang_exceptions import BoomslangPlotRenderingException
+from Legend import Legend
 
-try:
-    import mpl_toolkits.axes_grid.inset_locator
-    insetLocatorLoaded = True
-except ImportError:
-    insetLocatorLoaded = False
+from Utils import getGoldenRatioDimensions, _check_min_matplotlib_version
 
-from Utils import getGoldenRatioDimensions
-
-class Plot:
+class Plot(object):
     """
     Represents a single plot, usually consisting of a single X and Y axis.
     """
 
     def __init__(self):
         self.plots = []
+
         self.title = None
+        """
+        The plot's title (will be centered above the axes themselves)
+        """
+
         self.xFormatter = None
         self.yFormatter = None
+
         self.yLabel = None
+        """
+        The label for the plot's y-axis
+        """
+
         self.xLabel = None
-        self.legend = False
+        """
+        The label for the plot's x-axis
+        """
 
-        self.xlim = None
-        self.ylim = None
+        self._xLabelProperties = LabelProperties()
+        self._yLabelProperties = LabelProperties()
 
-        self.legendCols = 0
-        self.legendLoc = None
+        self.legend = None
+
+        self._xLimits = None
+        self._yLimits = None
 
         self.twinxLabel = None
         self.twinxIndex = -1
@@ -39,40 +54,221 @@ class Plot:
 
         self.lineStyles = None
         self.lineColors = None
-
-        self.title = None
+        self.markers = None
 
         self.width = None
-        self.height = None
-        
-        self.plotParams = None
-        self.logx = False
-        self.logy = False
-        self.loglog = False
-        self.grid = False
 
-        self.figLegend = False
-        
+        self.height = None
+
+        self.dpi = 100
+
+        self.plotParams = None
+
+        self.logx = False
+        """
+        If true, this plot's x-axis will be drawn in log scale.
+        """
+
+        self.logy = False
+        """
+        If true, this plot's y-axis will be drawn in log scale.
+        """
+
+        self.loglog = False
+        """
+        If true, both this plot's axes will be drawn in log scale.
+        """
+
+        self.logbase = 10
+        """
+        The base of the logarithm used to draw log scale axes.
+        """
+
+        self.logbasex = None
+        """
+        The base of the logarithm used to draw the x-axis. Overrides `logbase`,
+        and only takes effect if logx or loglog are True.
+        """
+
+        self.logbasey = None
+        """
+        The base of the logarithm used to draw the y-axis. Overrides `logbase`,
+        and only takes effect if logy or loglog are True.
+        """
+
+        self._grid = Grid()
+        self._grid.visible = False
+
         self.insets = []
-        
+
         self.hideTicks = False
-        
+        """
+        If True, this plot's tick labels are hidden.
+        """
+
         self.latex = False
-    
+
+        self.axesLabelSize = None
+        """
+        The size of the text used for labeling the x and y axes.
+        """
+
+        self.xTickLabelSize = None
+        """
+        The size of the text used for x-axis tick labels
+        """
+
+        self.yTickLabelSize = None
+        """
+        The size of the text used for y-axis tick labels
+        """
+
+        self.titleProperties = LabelProperties()
+
+        self.tight = False
+        """
+        If True, this plot is auto-scaled so that axis labels don't get cut off.
+        """
+
+        self.projection = None
+        """
+        Defines the projection used when drawing this plot. The only currently
+        supported value other than the standard (no projection) is 'polar'.
+        """
+
+    @property
+    def xLabelProperties(self):
+        """
+        A dictionary of properties that control the appearance of the X axis'
+        axis label. See :ref:`styling-labels` for more information on which
+        properties can be set.
+        """
+        return self._xLabelProperties
+
+    @xLabelProperties.setter
+    def xLabelProperties(self, propsobj):
+        self._xLabelProperties.update(propsobj)
+
+    @property
+    def yLabelProperties(self):
+        """
+        A dictionary of properties that control the appearance of the Y axis'
+        axis label. See :ref:`styling-labels` for more information on which
+        properties can be set.
+        """
+        return self._yLabelProperties
+
+    @yLabelProperties.setter
+    def yLabelProperties(self, propsobj):
+        self._yLabelProperties.update(propsobj)
+
+    @property
+    def xLimits(self):
+        """
+        A pair giving the minimum and maximum values visible on the x-axis.
+        """
+        return self._xLimits
+
+    @xLimits.setter
+    def xLimits(self, value):
+        if type(value) not in [tuple, list] or len(value) != 2:
+            raise AttributeError("xLimits must be set to a (min, max) tuple")
+
+        self._xLimits = tuple(value)
+
+    @property
+    def yLimits(self):
+        """
+        A pair giving the minimum and maximum values visible on the x-axis.
+        """
+        return self._yLimits
+
+    @yLimits.setter
+    def yLimits(self, value):
+        if type(value) not in [tuple, list] or len(value) != 2:
+            raise AttributeError("yLimits must be set to a (min, max) tuple")
+
+        self._yLimits = value
+
+    @property
+    def legendLabelSize(self):
+        """
+        The size of the text in this plot's legend.
+        """
+
+        return self.legend.labelSize
+
+    @legendLabelSize.setter
+    def legendLabelSize(self, size):
+        self.setLegendLabelSize(size)
+
+    @property
+    def grid(self):
+        """
+        A boomslang.Grid.Grid that defines the properties of this plot's grid
+        lines. See :ref:`plots-grid-lines` for configuration options.
+        """
+        return self._grid
+
+    @grid.setter
+    def grid(self, value):
+        if isinstance(value, bool) and value == True:
+            self._grid.visible = True
+        else:
+            raise AttributeError("Plot.grid cannot be re-assigned")
+
+    def setTitleProperties(self, **propList):
+        """
+        Set the properties of the title. See :ref:`styling-labels` for more
+        information about valid properties.
+        """
+        self.__setProperties(self.titleProperties, propList)
+
+    def __setProperties(self, propsDict, propList):
+        for (key, val) in propList.items():
+            propsDict[key] = val
+
+    def __str__(self):
+        return str(self.__dict__)
+
+    def setAxesLabelSize(self, size):
+        self.axesLabelSize = size
+
+    def setXTickLabelSize(self, size):
+        self.xTickLabelSize = size
+
+    def setYTickLabelSize(self, size):
+        self.yTickLabelSize = size
+
+    def setLegendLabelSize(self, size):
+        if self.legend is None:
+            self.legend = Legend()
+
+        self.legend.labelSize = size
+
     def split(self, pieces):
-       splitPlots = [copy.deepcopy(self) for i in xrange(pieces)]
-       
-       for plot in splitPlots:
-           plot.plots = []
-       
-       for plot in self.plots:
-           elements = plot.split(pieces)
-           for i in xrange(pieces):
-               splitPlots[i].add(elements[i])
-               splitPlots[i].setXLimits(min(elements[i].xValues), max(elements[i].xValues))
-       return splitPlots
-       
+        """
+        Split this plot into `pieces` separate plots, each showing a different
+        portion of the x-axis
+        """
+
+        splitPlots = [copy.deepcopy(self) for i in xrange(pieces)]
+
+        for plot in splitPlots:
+            plot.plots = []
+
+        for plot in self.plots:
+            elements = plot.split(pieces)
+            for i in xrange(pieces):
+                splitPlots[i].add(elements[i])
+                splitPlots[i].setXLimits(
+                    min(elements[i].xValues), max(elements[i].xValues))
+        return splitPlots
+
     def getDimensions(self):
+        """
+        Get the dimensions of this plot.
+        """
         if self.width is None:
             (self.width, self.height) = getGoldenRatioDimensions(8.0)
         elif self.height is None:
@@ -83,9 +279,13 @@ class Plot:
     def hideTickLabels(self):
         self.hideTicks = True
 
-    def setDimensions(self, width=None, height=None):
+    def setDimensions(self, width=None, height=None, dpi=100):
+        """
+        Set the dimensions for this plot to `width` x `height`
+        """
         self.width = width
         self.height = height
+        self.dpi = dpi
 
     def add(self, plottableObject):
         """
@@ -94,22 +294,28 @@ class Plot:
         """
 
         if not issubclass(plottableObject.__class__, PlotInfo):
-            print >>sys.stderr, "All objects added to a Plot must be a subclass of PlotInfo"
-            sys.exit(1)
+            raise BoomslangPlotConfigurationException(
+                "All objects added to a Plot must be a subclass of PlotInfo")
+
         self.plots.append(plottableObject)
 
-    def addInset(self, inset, width=0.3, height=0.3, location="upper right", 
-                 padding=0.05):
-        if not isinstance(inset, Plot):
-            print >>sys.stderr, "Can only add Plots as insets"
-            sys.exit(1)
+    def addInset(self, plot, **kwargs):
+        """
+        Add `plot` (a Plot object) as an inset to this plot object.
 
-        if not isinstance(width, float) or not isinstance(height, float):
-            print >>sys.stderr, \
-                "Width and height of inset must be numbers in range [0.0, 1.0)"
-            sys.exit(1)
-        
-        self.insets.append((inset, width, height, location, padding))
+        Valid arguments are as follows:
+
+        ============  ====================================================================================================================
+        Argument      Description
+        ============  ====================================================================================================================
+        ``width``     The width of the inset as a fraction of the size of the parent plot
+        ``height``    The height of the inset as a fraction of the size of the parent plot
+        ``location``  The location of the inset. See :ref:`plots-locations` for valid locations.
+        ``padding``   The amount of padding between the edge of the parent plot and the inset as a fraction of the size of the parent plot
+        ============  ====================================================================================================================
+        """
+        inset = Inset(plot, **kwargs)
+        self.insets.append(inset)
 
     def addLineStyle(self, style):
         """
@@ -117,20 +323,23 @@ class Plot:
         cycle when drawing lines. If no line styles are specified, the plot
         will default to the line style specified in the Line objects
         themselves.
-        
+
         Note that, when drawing lines, all line styles for a given color are
         cycled through before another color is used.
         """
         if self.lineStyles is None:
             self.lineStyles = []
-        self.lineStyles.append(style)
+
+        currStyle = LineStyle()
+        currStyle.style = style
+        self.lineStyles.append(currStyle)
 
     def addLineColor(self, color):
         """
         Add a line color to the list of line colors through which the plot will
         cycle when drawing lines. If no line colors are specified, the line
         colors specified by the Line objects themselves will be used.
-        
+
         Note that, when drawing lines, all line styles for a given color are
         cycled through before another color is used.
         """
@@ -138,12 +347,27 @@ class Plot:
             self.lineColors = []
         self.lineColors.append(color)
 
+    def addMarker(self, marker):
+        """
+        Add a marker style to the list of marker styles through which the plot
+        will cycle when drawing lines. If no markers are specified, the markers
+        specified by the Line objects themselves will be used.
+
+        Note that, when drawing lines, all line style/color combinations are
+        cycled through with a given marker before a new marker is chosen.
+        """
+        if self.markers is None:
+            self.markers = []
+
+        currMarker = Marker()
+        currMarker.marker = marker
+        self.markers.append(currMarker)
+
     def getNumPlots(self):
-        """
-        Get the number of plottable objects currently registered for this plot.
-        """
+        # Get the number of plottable objects currently registered for this
+        # plot.
         return len(self.plots)
-    
+
     def setTwinX(self, label, index, yMin=None, yMax=None):
         """
         Make the plot use a secondary y-axis with the provided label. All
@@ -153,7 +377,7 @@ class Plot:
         self.twinxLabel = label
         self.twinxIndex = index
 
-        if yMin == None and yMax == None:
+        if yMin is not None and yMax is not None:
             self.twinxLimits = (yMin, yMax)
 
     def setYFormatter(self, formatter):
@@ -166,65 +390,81 @@ class Plot:
         """
         Set the x-axis formatter used by this plot to the given function.
         """
-        self.xFormatter = formatter
+        self.xFormatter = pylab.FuncFormatter(formatter)
 
     def setXLabel(self, xLabel):
-        """
-        Set the x-axis label.
-        """
         self.xLabel = xLabel
 
     def setYLabel(self, yLabel):
-        """
-        Set the y-axis label.
-        """
         self.yLabel = yLabel
 
     def setXLimits(self, minX, maxX):
-        """
-        Set the minimum and maximum values for the x-axis.
-        """
-        self.xlim = (minX, maxX)
+        self.xLimits = (minX, maxX)
 
     def setYLimits(self, minY, maxY):
-        """
-        Set the minimum and maximum values for the y-axis.
-        """
-        self.ylim = (minY, maxY)
+        self.yLimits = (minY, maxY)
 
-    def hasFigLegend(self, columns=1, location="best"):
-        self.figLegend = True
-        self.legendCols = columns
-        self.legendLoc = location
+    def hasFigLegend(self, columns=1, location="best", scatterPoints=3,
+                     draw_frame=True, bbox_to_anchor=None, labelSize=None,
+                     title=None):
+        """
+        Declare that the figure has a legend with a given number of columns and
+        location.
+        """
+        self.legend = Legend(columns = columns,
+                              scatterPoints = scatterPoints,
+                              drawFrame = draw_frame,
+                              location = location,
+                              figLegend = True,
+                              labelSize = labelSize,
+                              bboxToAnchor = bbox_to_anchor,
+                              title = title)
 
-    def hasLegend(self, columns=1, location="best"):
+    def hasLegend(self, columns=1, location="best", scatterPoints=3,
+                  draw_frame=True, bbox_to_anchor=None, labelSize = None,
+                  title=None):
         """
         Declare that the plot has a legend with a given number of columns and
         location.
         """
-        self.legend = True
-        self.legendCols = columns
-        self.legendLoc = location
+        self.legend = Legend(columns = columns,
+                              scatterPoints = scatterPoints,
+                              drawFrame = draw_frame,
+                              location = location,
+                              figLegend = False,
+                              labelSize = labelSize,
+                              bboxToAnchor = bbox_to_anchor,
+                              title = title)
 
     def setTitle(self, title):
         self.title = title
 
     def __cmp__(self, other):
-        assert(isinstance(other, Plot))
+        if not isinstance(other, Plot):
+            raise ValueError("Can't compare a Plot with a non-Plot")
 
         return cmp(self.title, other.title)
 
     def __setupLayout(self):
         layout = PlotLayout()
         (width, height) = self.getDimensions()
-        
-        layout.setPlotDimensions(width, height)
+
+        layout.setPlotDimensions(width, height, dpi=self.dpi)
 
         if self.plotParams is not None:
             layout.setPlotParameters(**self.plotParams)
 
         if self.latex == True:
             layout.useLatexLabels()
+
+        if self.axesLabelSize is not None:
+            layout.setAxesLabelSize(self.axesLabelSize)
+
+        if self.xTickLabelSize is not None:
+            layout.setXTickLabelSize(self.xTickLabelSize)
+
+        if self.yTickLabelSize is not None:
+            layout.setYTickLabelSize(self.yTickLabelSize)
 
         layout.addPlot(self)
         return layout
@@ -239,7 +479,14 @@ class Plot:
         layout = self.__setupLayout()
         layout.plot()
 
+    def plot_fig(self):
+        layout = self.__setupLayout()
+        return layout._doPlot()
+
     def setPlotParameters(self, **kwdict):
+        """
+        Set the margins of this plot. See `matplotlib's SubplotParams documentation <http://matplotlib.sourceforge.net/api/figure_api.html#matplotlib.figure.SubplotParams>`_ for more details. It is recommended that you set :py:attr:`boomslang.Plot.Plot.tight` to True instead of setting these parameters.
+        """
         self.plotParams = dict(kwdict)
 
         if "left" not in self.plotParams:
@@ -261,79 +508,35 @@ class Plot:
             self.plotParams["hspace"] = 0.20
 
 
-    def save(self, filename):
+    def save(self, filename, **kwargs):
         """
         Save this plot to a file.
         """
         layout = self.__setupLayout()
-        layout.save(filename)
+        layout.save(filename,**kwargs)
 
-    def plotInset(self, parentAxes, width, height, location, padding):
-        if not insetLocatorLoaded:
-            print sys.stderr, "Plotting insets requires mpl_toolkits.axes_grid.inset_locatoor, which your version of matplotlib doesn't appear to have."
-            sys.exit(1)
+    def subplot(self, fig, row, column, position, projection):
+        kwdict = {}
 
-        locationMap = {"best" : 0, 
-                       "upper right" : 1,
-                       "upper left" : 2, 
-                       "lower left" : 3,
-                       "lower right" : 4, 
-                       "right" : 5, 
-                       "center left" : 6, 
-                       "center right" : 7,
-                       "lower center" : 8, 
-                       "upper center" : 9, 
-                       "center" : 10}
+        if projection is not None:
+            kwdict["projection"] = projection
 
-        if location not in locationMap:
-            print >>sys.stderr, "Location '%s' isn't valid. Valid locations are: %s" % (location, ', '.join(locationMap))
+        ax = fig.add_subplot(row, column, position, **kwdict)
+        return self.drawPlot(fig, ax)
 
-        ax = mpl_toolkits.axes_grid.inset_locator.inset_axes(parentAxes, width="%.2f%%" % (width * 100.0), height="%.2f%%" % (height * 100.0), loc=locationMap[location])
-        return self.drawPlot(ax)
-
-    # def plotInset(self, parentAxes, width, height, hPos, vPos, padding):
-    #     print parentAxes
-    #     insetWidth = width
-    #     insetHeight = height
-        
-    #     parentBBox = parentAxes.get_position().get_points()
-
-    #     (parentLeft, parentBottom) = parentBBox[0]
-    #     (parentWidth, parentHeight) = parentBBox[1]
-
-    #     insetLeft = parentLeft
-    #     insetBottom = parentBottom
-    #     width = width * parentWidth
-    #     height = height * parentHeight
-
-    #     if vPos == "lower":
-    #         insetBottom += padding
-    #     elif vPos == "upper":
-    #         insetBottom += parentHeight - (padding + height)
-
-    #     if hPos == "left":
-    #         insetLeft += padding
-    #     elif hPos == "center":
-    #         insetLeft += parentWidth - (width / 2.0)
-    #     elif hPos == "right":
-    #         insetLeft += parentWidth - (padding + width)
-        
-    #     print insetLeft, insetBottom, width, height
-        
-    #     ax = pylab.axes([insetLeft, insetBottom, width, height])
-    #     return self.drawPlot(ax)
-
-    def subplot(self, row, column, position):
-        ax = pylab.subplot(row, column, position)
-        return self.drawPlot(ax)
-        
-    def drawPlot(self, ax):
+    def drawPlot(self, fig, ax):
         """
         Used by PlotLayout to plot the graph at a given location in the layout.
         """
-        for insetInfo in self.insets:
-            insetInfo[0].plotInset(ax, *(insetInfo[1:]))
-        
+
+        ax2 = None
+
+        if self.tight:
+            ax.autoscale_view(tight=True)
+
+        for inset in self.insets:
+            inset.draw(fig, ax)
+
         if self.hideTicks == True:
             for xtl in ax.get_xticklabels():
                 xtl.set_visible(False)
@@ -344,14 +547,27 @@ class Plot:
             for ytick in ax.get_yticklines():
                 ytick.set_visible(False)
 
-        
-        if self.grid:
-            ax.grid()
+        if self.grid.visible == True:
+            self.grid.draw(fig, ax)
 
         if self.loglog or self.logx:
-            ax.set_xscale('log')
+            myBase = None
+
+            if self.logbasex is not None:
+                myBase = self.logbasex
+            else:
+                myBase = self.logbase
+
+            ax.set_xscale('log', basex=myBase)
         if self.loglog or self.logy:
-            ax.set_yscale('log')
+            myBase = None
+
+            if self.logbasey is not None:
+                myBase = self.logbasey
+            else:
+                myBase = self.logbase
+
+            ax.set_yscale('log', basey=myBase)
 
         if self.twinxIndex > 0:
             ax2 = ax.twinx()
@@ -369,64 +585,108 @@ class Plot:
             ax.yaxis.set_major_formatter(self.yFormatter)
 
         if self.title is not None:
-            ax.set_title(self.title)
+            ax.set_title(self.title, **self.titleProperties)
 
         i = 0
         myAxis = ax
+
+        hasLineStyles = self.lineStyles is not None
+        hasColors = self.lineColors is not None
+        hasMarkers = self.markers is not None
+
+        numLineStyles = 1
+        numColors = 1
+        numMarkers = 1
+
+        if hasLineStyles:
+            numLineStyles = len(self.lineStyles)
+
+        if hasColors:
+            numColors = len(self.lineColors)
+
+        if hasMarkers:
+            numMarkers = len(self.markers)
+
+        plotIndex = 0
+
         for plotInfo in self.plots:
             if self.twinxIndex >= 0 and i == self.twinxIndex:
                 myAxis = ax2
 
-            if self.lineStyles is not None:
-                numLineStyles = len(self.lineStyles)
+            myLineStyle = None
+            myColor = None
+            myMarker = None
 
-                myLineStyle = self.lineStyles[i % numLineStyles]
-                myColor = "black"
+            # cycle through styles first, then markers, then colors
+            colorIndex = (plotIndex / (numMarkers * numLineStyles)) % numColors
+            markerIndex = int(plotIndex / numLineStyles) % numMarkers
+            lineStyleIndex = plotIndex % numLineStyles
 
-                if self.lineColors is not None:
-                    numColors = len(self.lineColors)
-                    myColor = self.lineColors[(i / numLineStyles) % numColors]
-                
-                plotInfo.color = myColor
+            if hasLineStyles:
+                myLineStyle = self.lineStyles[lineStyleIndex].style
+
+            if hasColors:
+                myColor =  self.lineColors[colorIndex]
+
+            if hasMarkers:
+                myMarker = self.markers[markerIndex].marker
+
+
+            plotIndex += 1
+
+            if myLineStyle is not None:
                 plotInfo.lineStyle = myLineStyle
 
-            (currPlotHandles, currPlotLabels) = plotInfo.draw(myAxis)
-            plotHandles.extend(currPlotHandles)
-            plotLabels.extend(currPlotLabels)
+            if myMarker is not None:
+                plotInfo.marker = myMarker
+
+            if myColor is not None:
+                plotInfo.color = myColor
+
+            plotInfo._preDraw()
+            (currPlotHandles, currPlotLabels) = plotInfo.draw(fig, myAxis)
+
+            labelIndices = [x for x in range(len(currPlotLabels)) \
+                                if currPlotLabels[x] is not None]
+
+            if len(labelIndices) > 0:
+                plotHandles.extend([currPlotHandles[x] for x in labelIndices])
+                plotLabels.extend([currPlotLabels[x] for x in labelIndices])
+
+            if plotInfo.xLimits is not None:
+                if self.xLimits is None:
+                    self.xLimits = plotInfo.xLimits
+                else:
+                    (myXMin, myXMax) = plotInfo.xLimits
+                    self.xLimits = (min(self.xLimits[0], myXMin),
+                                 max(self.xLimits[1], myXMax))
 
             i += 1
 
-        if self.xlim is not None:
-            pylab.xlim(xmin=self.xlim[0], xmax=self.xlim[1])
+        if self.xLimits is not None:
+            ax.set_xlim(xmin=self.xLimits[0], xmax=self.xLimits[1])
 
-        if self.ylim is not None:
-            pylab.ylim(ymin=self.ylim[0], ymax=self.ylim[1])
+        if self.yLimits is not None:
+            ax.set_ylim(ymin=self.yLimits[0], ymax=self.yLimits[1])
 
 
         if self.xLabel is not None:
-            ax.set_xlabel(self.xLabel)
+            ax.set_xlabel(self.xLabel, **self.xLabelProperties)
 
         if self.yLabel is not None:
-            ax.set_ylabel(self.yLabel)
+            ax.set_ylabel(self.yLabel, **self.yLabelProperties)
 
-        legendKeywords = {}
-        
-        if self.legendCols > 0:
-            versionParts = [int(x) for x in matplotlib.__version__.split('.')]
-            
-            (superMajor, major, minor) = versionParts[0:3]
+        if self.legend is not None:
+            if len(plotHandles) == 0:
+                print >>sys.stderr, "ERROR: Plot wanted to draw a legend, " \
+                    "but none of its elements have labels"
+                sys.exit(1)
 
-            if superMajor == 0 and major < 98:
-                print >>sys.stderr, "Number of columns support not available in versions of matplotlib prior to 0.98"
+            if self.twinxIndex > 0:
+                legendAxis = ax2
             else:
-                legendKeywords["ncol"] = self.legendCols
+                legendAxis = ax
 
-        
-        if self.legend:
-            pylab.legend(plotHandles, plotLabels, loc=self.legendLoc, 
-                         **legendKeywords)
-        if self.figLegend:
-            pylab.figlegend(plotHandles, plotLabels, loc=self.legendLoc, 
-                            **legendKeywords)
-                
+            self.legend.draw(fig, legendAxis, plotHandles, plotLabels)
+
         return (plotHandles, plotLabels)

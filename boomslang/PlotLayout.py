@@ -1,27 +1,39 @@
 import pylab
-import matplotlib
 from matplotlib import pyplot
-import sys
+import os
+import warnings
+from boomslang_exceptions import BoomslangPlotRenderingException
 
-from Utils import getGoldenRatioDimensions
+from Utils import getGoldenRatioDimensions, _check_min_matplotlib_version
 
-class PlotLayout:
+class PlotLayout(object):
+    """
+    Displays multiple :class:`boomslang.Plot.Plot` objects in one canvas in a
+    grid, allowing the user to group related Plots in the same row.
+    """
+
     def __init__(self):
         self.groupedPlots = {}
         self.plots = []
-        self.groupOrder = None
 
-        self.width = 1
+        self.groupOrder = None
+        """
+        If not None, a list of groups in order by the order in which they
+        should be displayed
+        """
+
+        self._width = 1
         self.plotParams = None
 
         self.dimensions = None
         self.figdimensions = None
+        self.dpi = None
 
         self.figLegendLoc = None
         self.figLegendCols = None
 
         self.rcParams = None
-        
+
     def __setRCParam(self, param, value):
         if self.rcParams is None:
             self.rcParams = {}
@@ -29,15 +41,9 @@ class PlotLayout:
         self.rcParams[param] = value
 
     def useLatexLabels(self):
-        print >>sys.stderr, "WARNING: Using LaTeX labels requires dvipng and ghostscript"
+        warnings.warn("WARNING: Using LaTeX labels requires dvipng and "
+                      "ghostscript")
         self.__setRCParam("text.usetex", True)
-
-    def useStandardFont(self):
-        self.__setRCParam("font.family", "serif")
-        self.__setRCParam("font.style", "normal")
-        self.__setRCParam("font.variant", "normal")
-        self.__setRCParam("font.weight", "normal")
-        self.__setRCParam("font.stretch", "normal")
 
     def setAxesLabelSize(self, size):
         self.__setRCParam("axes.labelsize", size)
@@ -54,11 +60,34 @@ class PlotLayout:
     def setWidth(self, width):
         self.width = int(width)
 
-    def hasFigLegend(self, loc="best", numcols=1):
+    @property
+    def width(self):
+        """
+        The width, in number of plots, of the layout.
+        """
+        return self._width
+
+    @width.setter
+    def width(self, width):
+        self._width = int(width)
+
+    def hasFigLegend(self, loc="best", columns=1, numcols=None):
+        if numcols is not None:
+            # hasLegend uses columns, rather than numcols.
+            # trying to make this consistent.
+            # this should catch named parameter usage
+            columns = numcols
+            warnings.warn("numcols deprecated for hasFigLegend", Warning)
+
         self.figLegendLoc = loc
-        self.figLegendCols = numcols
+        self.figLegendCols = columns
 
     def addPlot(self, plot, grouping=None):
+        """
+        Add `plot` (a :class:`boomslang.Plot.Plot`) to the layout. Optionally,
+        specify a group name with `grouping`. Plots grouped in the same
+        grouping are drawn on the same row of the grid.
+        """
         if grouping == None:
             self.plots.append(plot)
         else:
@@ -70,11 +99,21 @@ class PlotLayout:
     def setGroupOrder(self, groupOrder):
         self.groupOrder = groupOrder
 
-    def setPlotDimensions(self, x, y):
+    def setPlotDimensions(self, x, y, dpi=100):
+        """
+        Set the dimensions of each plot in the layout to be `x` by `y`.
+        """
         self.dimensions = (x,y)
+        self.dpi = dpi
 
-    def setFigureDimensions(self, x, y):
+    def setFigureDimensions(self, x, y, dpi=100):
+        """
+        Set the dimensions of the layout to be `x` by `y`. This overrides any
+        values set with
+        :py:func:`boomslang.PlotLayout.PlotLayout.setPlotDimensions`.
+        """
         self.figdimensions = (x,y)
+        self.dpi = dpi
 
     def setPlotParameters(self, **kwdict):
         self.plotParams = dict(kwdict)
@@ -96,15 +135,19 @@ class PlotLayout:
 
         if "hspace" not in self.plotParams:
             self.plotParams["hspace"] = 0.20
-            
 
-    def __doPlot(self):
+
+    def _doPlot(self):
         if len(self.groupedPlots) + len(self.plots) == 0:
-            print "PlotLayout.plot(): No data to plot!"
-            return
+            raise BoomslangPlotRenderingException("No data to plot!")
+
+        oldRCParams = {}
 
         if self.rcParams is not None:
-            pylab.rcParams.update(self.rcParams)
+
+            for (param, value) in self.rcParams.items():
+                oldRCParams[param] = pylab.rcParams[param]
+                pylab.rcParams[param] = value
 
         groupedPlotLengths = [len(plots) for plots in self.groupedPlots.values()]
 
@@ -112,7 +155,7 @@ class PlotLayout:
             maxRowLength = self.width
         else:
             maxRowLength = max(groupedPlotLengths)
-        
+
         numPlots = len(self.plots)
 
         if numPlots == 0:
@@ -134,22 +177,16 @@ class PlotLayout:
         currentRow = 0
 
         if self.figdimensions is not None:
-            fig = pyplot.figure(figsize=(self.figdimensions[0], 
+            fig = pyplot.figure(figsize=(self.figdimensions[0],
                                          self.figdimensions[1]))
         elif self.dimensions is not None:
-            fig = pyplot.figure(figsize=(self.dimensions[0] * maxRowLength, 
+            fig = pyplot.figure(figsize=(self.dimensions[0] * maxRowLength,
                                          self.dimensions[1] * numRows))
         else:
             (figWidth, figHeight) = getGoldenRatioDimensions(8.0)
             figWidth *= maxRowLength
             figHeight *= numRows
             fig = pyplot.figure(figsize=(figWidth, figHeight))
-            # figWidth = fig.get_figwidth()
-            # print figWidth
-            # print fig.get_figheight()
-            # (goldenWidth, goldenHeight) = getGoldenRatioDimensions(figWidth)
-            # fig.set_figheight(goldenHeight)
-            # print fig.get_figheight()
 
         plotHandles = []
         plotLabels = []
@@ -165,8 +202,9 @@ class PlotLayout:
                 myCols = numPlots
                 myPos = (currentRow * numPlots) + currentColumn
 
-                (currPlotHandles, currPlotLabels) = plot.subplot(
-                    myRows, myCols, myPos)
+                (currPlotHandles, currPlotLabels) = self._plot_subplot(
+                    plot = plot, fig = fig, rows = myRows, cols = myCols,
+                    pos = myPos, projection=plot.projection)
 
                 for i in xrange(len(currPlotHandles)):
                     if currPlotLabels[i] in plotLabels:
@@ -178,9 +216,6 @@ class PlotLayout:
                         plotHandles.append(currPlotHandles[i])
 
                     plotLabels.append(currPlotLabels[i])
-
-#                plotHandles.extend(currPlotHandles)
-#                plotLabels.extend(currPlotLabels)
 
                 currentColumn += 1
             currentRow += 1
@@ -197,8 +232,10 @@ class PlotLayout:
                 myCols = numColumns
                 myPos = (currentRow * numColumns) + currentColumn
 
-                (currPlotHandles, currPlotLabels) = plot.subplot(
-                    myRows, myCols, myPos)
+                (currPlotHandles, currPlotLabels) = self._plot_subplot(
+                    plot = plot, fig = fig, rows = myRows, cols = myCols,
+                    pos = myPos, projection=plot.projection)
+
                 for i in xrange(len(currPlotHandles)):
                     if currPlotLabels[i] in plotLabels:
                         continue
@@ -209,7 +246,7 @@ class PlotLayout:
                         plotHandles.append(currPlotHandles[i])
 
                     plotLabels.append(currPlotLabels[i])
-                
+
                 currentColumn += 1
 
                 if currentColumn > numColumns:
@@ -222,33 +259,58 @@ class PlotLayout:
             figLegendKeywords = {}
 
             if self.figLegendCols is not None:
-                versionPieces = [int(x) for x in matplotlib.__version__.split('.')]
-                
-                (superMajor, major, minor) = versionPieces[0:3]
-                
-                if superMajor == 0 and major < 98:
-                    print >>sys.stderr, "Number of columns support not available in versions of matplotlib prior to 0.98"
+                if not _check_min_matplotlib_version(0, 98, 0):
+                    warnings.warn("Number of columns support not available in "
+                                  "versions of matplotlib prior to 0.98")
                 else:
                     figLegendKeywords["ncol"] = self.figLegendCols
-            
-            pylab.figlegend(plotHandles, plotLabels, 
-                            self.figLegendLoc, 
-                            **figLegendKeywords)
+
+            fig.legend(plotHandles, plotLabels,
+                       self.figLegendLoc,
+                       **figLegendKeywords)
 
         if self.plotParams is not None:
-            pylab.subplots_adjust(left=self.plotParams["left"],
-                                  bottom=self.plotParams["bottom"],
-                                  right=self.plotParams["right"],
-                                  top=self.plotParams["top"],
-                                  wspace=self.plotParams["wspace"],
-                                  hspace=self.plotParams["hspace"])
+            fig.subplots_adjust(left=self.plotParams["left"],
+                                bottom=self.plotParams["bottom"],
+                                right=self.plotParams["right"],
+                                top=self.plotParams["top"],
+                                wspace=self.plotParams["wspace"],
+                                hspace=self.plotParams["hspace"])
+        # Restore old RC params
+        for (key,value) in oldRCParams.items():
+            pylab.rcParams[key] = value
+
+        if _check_min_matplotlib_version(1, 1, 0):
+            fig.tight_layout()
+        return fig
+
+    def _plot_subplot(self, plot, fig, rows, cols, pos, projection):
+        return plot.subplot(fig, rows, cols, pos, projection)
 
     def plot(self):
-        self.__doPlot()
-        pylab.show()
+        """
+        Draw this layout to a matplotlib canvas.
+        """
+        fig = self._doPlot()
+        if not pylab.isinteractive():
+            pylab.show()
+        else:
+            pylab.draw()
+        pylab.close(fig)
 
-    def save(self, filename):
-        print "Saving %s ..." % filename
-        self.__doPlot()
-        pylab.savefig(filename)
-        pylab.clf()
+    def save(self, filename, **kwargs):
+        """
+        Save this layout to a file.
+        """
+        tempDisplayHack = False
+
+        if "DISPLAY" not in os.environ:
+            tempDisplayHack = True
+            os.environ["DISPLAY"] = ":0.0"
+        fig = self._doPlot()
+        fig.savefig(filename, dpi = self.dpi, **kwargs)
+        # pylab holds on to all figures unless you explicitly close them
+        pylab.close(fig)
+
+        if tempDisplayHack == True:
+            del os.environ["DISPLAY"]
