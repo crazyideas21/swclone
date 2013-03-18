@@ -20,6 +20,8 @@ REDIS_CLIENT_HOST_COUNT = 1
 CPU_CORE_COUNT = 1
 
 
+
+
 if CONFIGURATION == 'hp':
     REDIS_SERVER_IN_BAND = '192.168.100.2' 
     REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
@@ -70,6 +72,8 @@ if FLOW_TYPE == 'mouse':
     # At least how fast a query should receive data.
     MIN_RECV_Mbps = 0
     
+    RECV_BUF_SIZE = 32768
+        
     SHOW_STATS = False
 
 elif FLOW_TYPE == 'elephant':
@@ -87,7 +91,7 @@ elif FLOW_TYPE == 'elephant':
     MIN_RECV_Mbps = 2
     
     SHOW_STATS = True
-
+    RECV_BUF_SIZE = 1048576
 
 
 REDIS_PORT = 6379
@@ -460,7 +464,7 @@ class RedisClientConnection:
     
     def handle_read(self):
         try:
-            data = self.sock.recv(1048576)
+            data = self.sock.recv(RECV_BUF_SIZE)
         except IOError:
             self.closed = True
             return
