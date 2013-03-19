@@ -16,6 +16,11 @@ import async_redis
 import pcap
 
 
+# ==============================================================================
+DELAY_PROFILE_TYPE = 'modified'  # CHANGE THIS: either 'original' or 'modified'
+# ==============================================================================
+
+
 REDIS_PORT = 6379
 
 # If True, then we don't impose any delay at all.
@@ -24,26 +29,21 @@ NO_OP = False
 # Some artificial value we have to subtract off the overhead.
 MAGIC_OVERHEAD = 0
 
-DELAY_PROFILE_TYPE = 'original'  # either 'original' or 'modified'
-
 # Parse the environment variable.
 DELAY_PROFILE = str(os.environ.get('DELAY_PROFILE')).lower()
 
-if DELAY_PROFILE == 'hp':
-    #MAGIC_OVERHEAD = 0.015
-    pass
-elif DELAY_PROFILE == 'monaco':
-    #MAGIC_OVERHEAD = 0.003
-    pass
-elif DELAY_PROFILE == 'quanta':
-    #MAGIC_OVERHEAD = 0.010
-    pass
-elif DELAY_PROFILE == 'noop':
+if DELAY_PROFILE_TYPE == 'modified':
+    if DELAY_PROFILE == 'hp':
+        MAGIC_OVERHEAD = 0.002
+    elif DELAY_PROFILE == 'monaco':
+        MAGIC_OVERHEAD = 0.004
+    elif DELAY_PROFILE == 'quanta':
+        MAGIC_OVERHEAD = 0.007
+    else:    
+        raise RuntimeError('Invalid DELAY_PROFILE.')
+
+if DELAY_PROFILE == 'noop':
     NO_OP = True
-else:    
-    raise RuntimeError('Invalid DELAY_PROFILE.')
-
-
 
 
 class DelayProfiler:
@@ -88,11 +88,32 @@ class DelayProfiler:
         return self._delay_bins[p]
 
 
+    def get_conditional_delay(self, percentile):
+        """ where 0 <= percentile <= 1 """
+
+        scaled_p = int(round(percentile * self._bin_count))
+        return self._delay_bins[scaled_p]
     
+    
+    def find_delay_percentile(self, delay):
+        """ Returns the percentile [0, 1] of a given delay. """
+        index = self._bin_count - 1
+        while index >= 0:
+            if delay >= self._delay_bins[index]:
+                return index * 1.0 / self._bin_count
+            index -= 1
+        return 0
+        
+        
 
 
 
-class DelayedAction(threading.Thread):
+
+
+
+
+
+class RandomDelayedAction(threading.Thread):
     
     def __init__(self):
                 
@@ -125,7 +146,7 @@ class DelayedAction(threading.Thread):
         self.start()
 
         print '*' * 80
-        print 'Delayed Action, using "profile %s"-"%s".' % (DELAY_PROFILE_TYPE, DELAY_PROFILE)
+        print 'Delayed Action, using profile "%s"-"%s".' % (DELAY_PROFILE_TYPE, DELAY_PROFILE)
         print '*' * 80
 
 
@@ -168,7 +189,7 @@ class DelayedAction(threading.Thread):
                 ovs_overhead += self._unused_ovs_overhead
                 delay = delay - ovs_overhead
                 if delay <= 0:
-                    self._unused_ovs_overhead += 0.0 - delay #TODO: Should we do this? 
+                    #self._unused_ovs_overhead += 0.0 - delay #TODO: Should we do this? 
                     return self._execute(func, *args, **kwargs)
 
         # Add event to job queue.
@@ -211,7 +232,7 @@ class DelayedAction(threading.Thread):
     
     
     
-    def _get_ovs_overhead(self, src_port, dst_port, current_time):
+    def _get_ovs_overhead(self, src_port, dst_port, current_time, max_attempt=5):
         """
         Continuously asks if pcap has seen <src_port, dst_port>. Stops when it
         appears in the pcap history. Extract the pcap time. Based on the current
@@ -219,17 +240,17 @@ class DelayedAction(threading.Thread):
         
         """
         # Average loop count is around 2.
-        for _ in range(5):
+        for _ in range(max_attempt):
             
             try:
                 (timestamp, src, dst) = self._pkt_queue.get_nowait()
             except Empty:
-                return 0
+                return 0 # What usually happens is pcap cannot keep up
             
             if src == src_port and dst == dst_port:
                 return current_time - timestamp  + 0.001 # Magic number 
     
-        return 0
+        return 0 # Almost never happens.
 
             
     
@@ -285,13 +306,82 @@ def _get_tcp_src_dst_ports(raw_pkt):
     
     
     
+
+
+
+
+
+
+
+class ConditionalDelayedAction(RandomDelayedAction):
+    
+    def __init__(self):
+        
+        self._ovs_pkt_in_profiler = DelayProfiler('./profile/ovs-pkt-in.csv')
+        RandomDelayedAction.__init__(self)
+        
+        self._stats = []
+        t = threading.Thread(target=self._save_stat)
+        t.daemon = True
+        #t.start() # TODO: used for debugging only
+
+
+    def _get_delay(self, filter_obj):
+        raise RuntimeError('Do not call.')
+
+
+
+    def add_job(self, filter_obj, func, *args, **kwargs):
+
+        if NO_OP:
+            return self._execute(func, *args, **kwargs)
+        if not (isinstance(filter_obj, ofp_packet_in) or isinstance(filter_obj, ofp_flow_mod)):
+            return self._execute(func, *args, **kwargs)
+
+        delay = 0                
+        current_time = time.time()                
+
+        # Based on OVS's pkt-in delay, find the physical switch's delay.
+        if isinstance(filter_obj, ofp_packet_in):
+            pkt_in = args[1]
+            (src_port, dst_port) = _get_tcp_src_dst_ports(pkt_in.data)
+            if src_port and dst_port:
+                ovs_overhead = self._get_ovs_overhead(src_port, dst_port, current_time)
+                if ovs_overhead > 0:
+                    percentile = self._ovs_pkt_in_profiler.find_delay_percentile(ovs_overhead)
+                else:
+                    percentile = random.uniform(0, 0.40) # Randomly break ties.
+                    ovs_overhead = 0.001
+                delay = self._pkt_in_profiler.get_conditional_delay(percentile) - ovs_overhead
+
+        # Find the flow-mod delay randomly.
+        elif isinstance(filter_obj, ofp_flow_mod):
+            delay = self._flow_mod_profiler.get_delay()
+
+        delay = delay - MAGIC_OVERHEAD
+        if delay <= 0.002:
+            return self._execute(func, *args, **kwargs)
+        elif delay > 5:
+            return # Drop straight away
+
+        # Add event to job queue.
+        with self._pq_lock:
+            self._pq.put((delay + current_time, func, args, kwargs))
+                    
+
+
+
+    def _save_stat(self):
+        time.sleep(60)
+        with open('data/delays.csv', 'w') as f:
+            for stats in self._stats:
+                print >> f, ','.join([str(v) for v in stats])
+        print 'Written delays.csv'
     
     
     
     
-    
-    
-    
+DelayedAction = ConditionalDelayedAction    
     
     
 

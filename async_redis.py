@@ -7,19 +7,25 @@ Created on Dec 11, 2012
 @author: danny
 '''
 from multiprocessing import Queue, Process 
-
-
 import time, socket, subprocess, random, sys, os, select
 import cPickle as pickle
 import lib.util as util
 
 
-CONFIGURATION = 'ovs'
-FLOW_TYPE = 'mouse'
+
+class FlowType:
+    mouse = 'mouse'
+    elephant = 'elephant'
+
+# ==============================================================================
+CONFIGURATION = 'ovs'  # CHANGE THIS
+FLOW_TYPE = FlowType.mouse  # CHANGE THIS
+# ==============================================================================
+
 REDIS_CLIENT_HOST_COUNT = 1
 CPU_CORE_COUNT = 1
 
-
+INFINITY = float('inf')
 
 
 if CONFIGURATION == 'hp':
@@ -50,7 +56,7 @@ else:
 
 
 
-if FLOW_TYPE == 'mouse':
+if FLOW_TYPE == FlowType.mouse:
 
     # Expected gap in milliseconds between successive requests. Actual value may
     # differ.
@@ -60,7 +66,7 @@ if FLOW_TYPE == 'mouse':
     DATA_LENGTH = 64 
 
     # Max number of flows to start.
-    MAX_QUERY_COUNT = 10000000 # inf
+    MAX_QUERY_COUNT = float('inf')
 
     MAX_RUNNING_TIME = 130 # default 70
     INTERESTING_TIME_START = 60 # default 30
@@ -72,23 +78,27 @@ if FLOW_TYPE == 'mouse':
     # At least how fast a query should receive data.
     MIN_RECV_Mbps = 0
     
+    # Number of concurrent connections
+    MAX_CONCURRENT_CONNECTIONS = INFINITY
+    
     RECV_BUF_SIZE = 32768
         
     SHOW_STATS = False
 
-elif FLOW_TYPE == 'elephant':
+elif FLOW_TYPE == FlowType.elephant:
 
-    EXPECTED_GAP_MS = 500
-    DATA_LENGTH = 50 * 1000 * 1000 
+    EXPECTED_GAP_MS = 0
+    DATA_LENGTH = 500 * 1000 * 1000 
+    MAX_CONCURRENT_CONNECTIONS = 1000
 
-    MAX_QUERY_COUNT = 1000
+    MAX_QUERY_COUNT = INFINITY
 
-    MAX_RUNNING_TIME = 360000 # inf
-    INTERESTING_TIME_START = 0 
-    INTERESTING_TIME_END = 360000 # inf
+    MAX_RUNNING_TIME = 130
+    INTERESTING_TIME_START = 60
+    INTERESTING_TIME_END = 120
 
-    MAX_QUERY_SECONDS = 360000 # inf
-    MIN_RECV_Mbps = 2
+    MAX_QUERY_SECONDS = 3600
+    MIN_RECV_Mbps = 0
     
     SHOW_STATS = True
     RECV_BUF_SIZE = 1048576
@@ -304,7 +314,8 @@ def _redis_client_process(gap, result_queue):
     """ Spawns redis clients with 'gap' second intervals. """
 
     # Prevent all client processes to start at the same time.
-    time.sleep(random.uniform(1,3))
+    if CPU_CORE_COUNT > 1:
+        time.sleep(random.uniform(1,3))
 
     master_start_time = time.time()
     last_redis_start_time = 0
@@ -315,6 +326,13 @@ def _redis_client_process(gap, result_queue):
     
     conn_list = []
     start_end_time_list = []
+    
+    # Maps a connection to start_bytes, which record the number of
+    # bytes the connection receives at the beginning of the steady state.
+    conn_start_bytes_dict = {}
+
+    # Similar, records the number of bytes at the end of the steady state.
+    conn_end_bytes_dict = {}
     
     while True:
         
@@ -327,12 +345,22 @@ def _redis_client_process(gap, result_queue):
 
         # Make sure that at least a given number of seconds (i.e. 'gap) have
         # elapsed since we last started a new client connection.
-        if current_time - last_redis_start_time >= gap and query_count < MAX_QUERY_COUNT:
-            conn_list.append(RedisClientConnection(query_count))
-            last_redis_start_time = current_time
-            query_count += 1
-            if SHOW_STATS:
-                print 'Started query #', (query_count - 1)
+        if (current_time - last_redis_start_time >= gap and \
+            query_count < MAX_QUERY_COUNT and \
+            len(conn_list) < MAX_CONCURRENT_CONNECTIONS):
+            
+            if FLOW_TYPE == FlowType.elephant:
+                # Fast start.
+                start_count = MAX_CONCURRENT_CONNECTIONS - len(conn_list)
+            else:
+                start_count = 1
+            
+            for _ in range(start_count):
+                conn_list.append(RedisClientConnection(query_count))
+                last_redis_start_time = current_time
+                query_count += 1
+                if SHOW_STATS:
+                    print 'Started query #', (query_count - 1)
         
         # Async I/O
         if _redis_client_select(conn_list, start_end_time_list):
@@ -362,6 +390,35 @@ def _redis_client_process(gap, result_queue):
                 print >> sys.stderr, os.getpid(), 'removed %s timed out queries.' % len(removed_cxn_id_list)
                 if SHOW_STATS:
                     print >> sys.stderr, 'Removed', removed_cxn_id_list
+        
+        # Sample the throughput at the beginning and end of steady state.
+        if FLOW_TYPE == FlowType.elephant:
+            
+            # Start of steady state:
+            if ((len(conn_start_bytes_dict) == 0) and \
+                (current_time - master_start_time >= INTERESTING_TIME_START)):
+                for conn in conn_list:
+                    conn_start_bytes_dict[conn] = conn.rbuf_length
+                    
+            # End of steady state:
+            if ((len(conn_end_bytes_dict) == 0) and \
+                (current_time - master_start_time >= INTERESTING_TIME_END)):
+                for conn in conn_list:
+                    conn_end_bytes_dict[conn] = conn.rbuf_length
+
+    # Combine the two conn_*_bytes_dict. Calculate the Mbps.
+    if FLOW_TYPE == FlowType.elephant:
+        common_conn = set(conn_start_bytes_dict.keys()) & set(conn_end_bytes_dict.keys())
+        Mbps_list = []
+        for conn in common_conn:
+            bytes_received = conn_end_bytes_dict[conn] - conn_start_bytes_dict[conn]
+            Bps = bytes_received / (INTERESTING_TIME_END - INTERESTING_TIME_START)
+            Mbps = Bps * 8.0 / 1000000.0
+            Mbps_list += [Mbps]
+        Mbps_list += [0] * (MAX_CONCURRENT_CONNECTIONS - len(Mbps_list))
+        with open('data/elephant-throughput.csv', 'w') as f:
+            for (v, p) in util.make_cdf_table(Mbps_list):
+                print >> f, '%f,%f' % (v, p)
         
     # Send the start-end time list back to the main process.
     result_queue.put(start_end_time_list)
@@ -400,14 +457,15 @@ def _redis_client_select(conn_list, start_end_time_list):
     # Clean up. Record start-end times.
     for conn in finished_conns:
         start_end_time_list.append((conn.start_time, conn.end_time))
+        conn.close()
         conn_list.remove(conn)
         if SHOW_STATS:
             if conn.end_time:
                 time_delta = conn.end_time - conn.start_time
-                print 'Query done in', int(time_delta), 'seconds at', 
+                print 'Query', conn.cxn_id, 'done in', int(time_delta), 'seconds at', 
                 print '%.3f Mbps.' % (DATA_LENGTH * 8 / time_delta / 1000000.0)
             else:
-                print 'Query timed out.' 
+                print 'Query', conn.cxn_id, 'timed out.' 
     
     return True
     
@@ -489,6 +547,9 @@ class RedisClientConnection:
     def __del__(self):
         self.sock.close()
     
+    
+    def close(self):
+        self.sock.close()
     
 
 

@@ -472,9 +472,10 @@ def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False,
     if eval(str(permanent)):
         global IDLE_TIMEOUT
         global HARD_TIMEOUT
-        IDLE_TIMEOUT = 0
+        IDLE_TIMEOUT = 10
         HARD_TIMEOUT = 0
-        print '[!] Rules never time out, as permanent = True.' 
+        #print '[!] Rules never time out, as permanent = True.' 
+        print '[!] permanent = True > IDLE_TIMEOUT =', IDLE_TIMEOUT, 'HARD_TIMEOUT =', HARD_TIMEOUT 
     
     core.registerNew(l2_learning, str_to_bool(transparent))
     
