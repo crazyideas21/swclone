@@ -1,0 +1,47 @@
+pdf('graphs/qq-final.pdf', width=9, height=3)
+par(mfrow=c(1,3))
+
+raw = read.table('raw/hp/async_redis_latency.csv');
+em = read.csv('em-latency-alex/em-hp-final/async_redis_latency.csv')
+
+qqplot(raw[[1]], em[[1]], xlim=c(0,400), ylim=c(0,400), xlab="(a) Query completion time on HP switch (ms)", ylab="Query completion time on emulator (ms)"); abline(0, 1);
+
+raw = read.table('raw/monaco/async_redis_latency.csv');
+em = read.csv('em-latency-alex/em-monaco-final/async_redis_latency.csv')
+
+qqplot(raw[[1]], em[[1]], xlim=c(0,400), ylim=c(0,400), xlab="(b) Query completion time on Monaco switch (ms)", ylab=""); abline(0, 1);
+
+raw = read.table('raw/quanta/async_redis_latency.csv');
+em = read.csv('em-latency-alex/em-quanta-final/async_redis_latency.csv')
+
+qqplot(raw[[1]], em[[1]], xlim=c(0,400), ylim=c(0,400), xlab="(c) Query completion time on Quanta switch (ms)", ylab=""); abline(0, 1);
+
+dev.off()
+
+
+
+
+
+
+
+
+
+pdf('graphs/qq-intermediate.pdf', width=9, height=3)
+par(mfrow=c(1,3))
+
+raw = read.table('raw/hp/async_redis_latency.csv');
+em = read.csv('em-latency-alex/em-hp-intermediate/async_redis_latency.csv')
+
+qqplot(raw[[1]], em[[1]], xlim=c(0,400), ylim=c(0,400), xlab="(a) Query completion time on HP switch (ms)", ylab="Query completion time on emulator (ms)"); abline(0, 1);
+
+raw = read.table('raw/monaco/async_redis_latency.csv');
+em = read.csv('em-latency-alex/em-monaco-intermediate/async_redis_latency.csv')
+
+qqplot(raw[[1]], em[[1]], xlim=c(0,400), ylim=c(0,400), xlab="(b) Query completion time on Monaco switch (ms)", ylab=""); abline(0, 1);
+
+raw = read.table('raw/quanta/async_redis_latency.csv');
+em = read.csv('em-latency-alex/em-quanta-intermediate/async_redis_latency.csv')
+
+qqplot(raw[[1]], em[[1]], xlim=c(0,400), ylim=c(0,400), xlab="(c) Query completion time on Quanta switch (ms)", ylab=""); abline(0, 1);
+
+dev.off()
