@@ -41,7 +41,6 @@ if USE_LIMITER:
 FLOW_TABLE_FILE = 'flow_table.repr'
 
 
-
 def get_the_other_port(this_port):
     
     assert this_port in SWITCH_PORT_LIST and len(SWITCH_PORT_LIST) == 2
@@ -97,7 +96,7 @@ class LearningSwitch (EventMixin):
 
         # To allow the experiment's main program to access all the internal
         # state of this controller.
-        StateProxyServer(self, self.lock, self.reset).start()
+        #StateProxyServer(self, self.lock, self.reset).start() TODO: Not used.
         
         
         
@@ -204,7 +203,7 @@ class LearningSwitch (EventMixin):
         
         """
         flow_count_list = [len([f for f in event.stats if f.table_id == i]) \
-                           for i in [0,1,2]]
+                           for i in range(10)]
         print 'flow_count_list =', flow_count_list # TODO: xxx
         mylog('flow_count_list =', flow_count_list)
         with self.lock:
@@ -259,8 +258,8 @@ class LearningSwitch (EventMixin):
             
             sleep_time = 0
             while True:
-                time.sleep(2)
-                sleep_time += 2
+                time.sleep(0.5)
+                sleep_time += 0.5
                 with self.lock:
                     if sleep_time >= self.flow_stat_interval:
                         break
@@ -457,7 +456,8 @@ class l2_learning (EventMixin):
 
 
 
-def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False, permanent=False):
+def launch (transparent=False, of_port_1=None, of_port_2=None, 
+            rate_limit=False, permanent=False):
     """
     Starts an L2 learning switch.
     """
@@ -472,7 +472,7 @@ def launch (transparent=False, of_port_1=None, of_port_2=None, rate_limit=False,
     if eval(str(permanent)):
         global IDLE_TIMEOUT
         global HARD_TIMEOUT
-        IDLE_TIMEOUT = 10
+        IDLE_TIMEOUT = 0
         HARD_TIMEOUT = 0
         #print '[!] Rules never time out, as permanent = True.' 
         print '[!] permanent = True > IDLE_TIMEOUT =', IDLE_TIMEOUT, 'HARD_TIMEOUT =', HARD_TIMEOUT 

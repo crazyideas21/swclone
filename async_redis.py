@@ -37,7 +37,8 @@ if CONFIGURATION == 'hp':
 elif CONFIGURATION == 'monaco':
     REDIS_SERVER_IN_BAND = '192.168.100.2'
     REDIS_SERVER_OUT_OF_BAND = '127.0.0.1'
-    
+    CLIENT_INTERFACE = 'eth1'
+    SERVER_INTERFACE = 'eth2'    
         
 elif CONFIGURATION == 'quanta':
     REDIS_SERVER_IN_BAND = '192.168.100.2'
@@ -79,7 +80,7 @@ if FLOW_TYPE == FlowType.mouse:
     MIN_RECV_Mbps = 0
     
     # Number of concurrent connections
-    MAX_CONCURRENT_CONNECTIONS = INFINITY
+    MAX_CONCURRENT_CONNECTIONS = 3600
     
     RECV_BUF_SIZE = 32768
         
@@ -87,22 +88,21 @@ if FLOW_TYPE == FlowType.mouse:
 
 elif FLOW_TYPE == FlowType.elephant:
 
-    EXPECTED_GAP_MS = 0
-    DATA_LENGTH = 500 * 1000 * 1000 
-    MAX_CONCURRENT_CONNECTIONS = 1000
+    EXPECTED_GAP_MS = 200
+    DATA_LENGTH = 50 * 1000 * 1000 
+    MAX_CONCURRENT_CONNECTIONS = INFINITY
 
-    MAX_QUERY_COUNT = INFINITY
+    MAX_QUERY_COUNT = 1000
 
-    MAX_RUNNING_TIME = 130
-    INTERESTING_TIME_START = 60
-    INTERESTING_TIME_END = 120
+    MAX_RUNNING_TIME = 3600
+    INTERESTING_TIME_START = 0
+    INTERESTING_TIME_END = 3600
 
     MAX_QUERY_SECONDS = 3600
-    MIN_RECV_Mbps = 0
+    MIN_RECV_Mbps = 0.5
     
     SHOW_STATS = True
     RECV_BUF_SIZE = 1048576
-
 
 REDIS_PORT = 6379
 
@@ -327,12 +327,12 @@ def _redis_client_process(gap, result_queue):
     conn_list = []
     start_end_time_list = []
     
-    # Maps a connection to start_bytes, which record the number of
-    # bytes the connection receives at the beginning of the steady state.
-    conn_start_bytes_dict = {}
-
-    # Similar, records the number of bytes at the end of the steady state.
-    conn_end_bytes_dict = {}
+#    # Maps a connection to start_bytes, which record the number of
+#    # bytes the connection receives at the beginning of the steady state.
+#    conn_start_bytes_dict = {}
+#
+#    # Similar, records the number of bytes at the end of the steady state.
+#    conn_end_bytes_dict = {}
     
     while True:
         
@@ -349,18 +349,11 @@ def _redis_client_process(gap, result_queue):
             query_count < MAX_QUERY_COUNT and \
             len(conn_list) < MAX_CONCURRENT_CONNECTIONS):
             
-            if FLOW_TYPE == FlowType.elephant:
-                # Fast start.
-                start_count = MAX_CONCURRENT_CONNECTIONS - len(conn_list)
-            else:
-                start_count = 1
-            
-            for _ in range(start_count):
-                conn_list.append(RedisClientConnection(query_count))
-                last_redis_start_time = current_time
-                query_count += 1
-                if SHOW_STATS:
-                    print 'Started query #', (query_count - 1)
+            conn_list.append(RedisClientConnection(query_count))
+            last_redis_start_time = current_time
+            query_count += 1
+            if SHOW_STATS:
+                print 'Started query #', (query_count - 1)
         
         # Async I/O
         if _redis_client_select(conn_list, start_end_time_list):
@@ -391,34 +384,36 @@ def _redis_client_process(gap, result_queue):
                 if SHOW_STATS:
                     print >> sys.stderr, 'Removed', removed_cxn_id_list
         
-        # Sample the throughput at the beginning and end of steady state.
-        if FLOW_TYPE == FlowType.elephant:
-            
-            # Start of steady state:
-            if ((len(conn_start_bytes_dict) == 0) and \
-                (current_time - master_start_time >= INTERESTING_TIME_START)):
-                for conn in conn_list:
-                    conn_start_bytes_dict[conn] = conn.rbuf_length
-                    
-            # End of steady state:
-            if ((len(conn_end_bytes_dict) == 0) and \
-                (current_time - master_start_time >= INTERESTING_TIME_END)):
-                for conn in conn_list:
-                    conn_end_bytes_dict[conn] = conn.rbuf_length
-
-    # Combine the two conn_*_bytes_dict. Calculate the Mbps.
-    if FLOW_TYPE == FlowType.elephant:
-        common_conn = set(conn_start_bytes_dict.keys()) & set(conn_end_bytes_dict.keys())
-        Mbps_list = []
-        for conn in common_conn:
-            bytes_received = conn_end_bytes_dict[conn] - conn_start_bytes_dict[conn]
-            Bps = bytes_received / (INTERESTING_TIME_END - INTERESTING_TIME_START)
-            Mbps = Bps * 8.0 / 1000000.0
-            Mbps_list += [Mbps]
-        Mbps_list += [0] * (MAX_CONCURRENT_CONNECTIONS - len(Mbps_list))
-        with open('data/elephant-throughput.csv', 'w') as f:
-            for (v, p) in util.make_cdf_table(Mbps_list):
-                print >> f, '%f,%f' % (v, p)
+#        # Sample the throughput at the beginning and end of steady state.
+#        if FLOW_TYPE == FlowType.elephant:
+#            
+#            # Start of steady state:
+#            if ((len(conn_start_bytes_dict) == 0) and \
+#                (current_time - master_start_time >= INTERESTING_TIME_START)):
+#                for conn in conn_list:
+#                    conn_start_bytes_dict[conn] = conn.rbuf_length
+#                print 'zzzz steady state start:', sorted([conn.cxn_id for conn in conn_list])
+#                    
+#            # End of steady state:
+#            if ((len(conn_end_bytes_dict) == 0) and \
+#                (current_time - master_start_time >= INTERESTING_TIME_END)):
+#                for conn in conn_list:
+#                    conn_end_bytes_dict[conn] = conn.rbuf_length
+#                print 'zzzz steady state end:', sorted([conn.cxn_id for conn in conn_list])
+#
+#    # Combine the two conn_*_bytes_dict. Calculate the Mbps.
+#    if FLOW_TYPE == FlowType.elephant:
+#        common_conn = set(conn_start_bytes_dict.keys()) & set(conn_end_bytes_dict.keys())
+#        Mbps_list = []
+#        for conn in common_conn:
+#            bytes_received = conn_end_bytes_dict[conn] - conn_start_bytes_dict[conn]
+#            Bps = bytes_received / (INTERESTING_TIME_END - INTERESTING_TIME_START)
+#            Mbps = Bps * 8.0 / 1000000.0
+#            Mbps_list += [Mbps]
+#        Mbps_list += [0] * (MAX_CONCURRENT_CONNECTIONS - len(Mbps_list))
+#        with open('data/elephant-throughput.csv', 'w') as f:
+#            for (v, p) in util.make_cdf_table(Mbps_list):
+#                print >> f, '%f,%f' % (v, p)
         
     # Send the start-end time list back to the main process.
     result_queue.put(start_end_time_list)
@@ -463,7 +458,9 @@ def _redis_client_select(conn_list, start_end_time_list):
             if conn.end_time:
                 time_delta = conn.end_time - conn.start_time
                 print 'Query', conn.cxn_id, 'done in', int(time_delta), 'seconds at', 
-                print '%.3f Mbps.' % (DATA_LENGTH * 8 / time_delta / 1000000.0)
+                print '%.3f Mbps.' % (conn.rbuf_length * 8 / time_delta / 1000000.0)
+                if conn.rbuf_length < 100:
+                    print 'zzzz', repr(conn.rbuf_last_read)
             else:
                 print 'Query', conn.cxn_id, 'timed out.' 
     
@@ -477,6 +474,14 @@ class RedisClientConnection:
     def __init__(self, cxn_id):
         
         self.cxn_id = cxn_id
+        self.initialize()
+        
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setblocking(0)
+        self.sock.connect_ex((REDIS_SERVER_IN_BAND, REDIS_PORT))
+
+
+    def initialize(self):
         
         self.wbuf = 'get x\r\n'        
         self.rbuf_length = 0
@@ -487,11 +492,7 @@ class RedisClientConnection:
         self.start_time = time.time()
         self.end_time = None
         
-        self.closed = False
-        
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setblocking(0)
-        self.sock.connect_ex((REDIS_SERVER_IN_BAND, REDIS_PORT))
+        self.closed = False        
 
     
     def fileno(self):
@@ -532,16 +533,22 @@ class RedisClientConnection:
             self.rbuf_last_read += data
             self.rbuf_last_read = self.rbuf_last_read[-1024:]
             self.rbuf_length += len(data)
-            #print 'zzzz Connection', self.cxn_id, 'got', len(data), 'bytes'
             if self._done_reading():
-                self.end_time = time.time()
-                self.closed = True                    
+#                if FLOW_TYPE == FlowType.elephant:
+#                    # Keep interacting with the server with 'get x'
+#                    old_length = self.rbuf_length
+#                    self.initialize() 
+#                    self.rbuf_length = old_length
+#                else:
+                    # To close the connection.
+                    self.end_time = time.time()
+                    self.closed = True                    
         else:
             self.closed = True
     
     
     def _done_reading(self):
-        return self.rbuf_length > DATA_LENGTH and self.rbuf_last_read.endswith('\r\n')
+        return self.rbuf_length >= DATA_LENGTH and self.rbuf_last_read.endswith('\r\n')
             
     
     def __del__(self):

@@ -8,7 +8,7 @@ Created on Mar 1, 2013
 
 @author: danny
 '''
-import threading, traceback, sys, time, random, struct, os
+import threading, traceback, sys, time, random, struct, os, subprocess
 from Queue import PriorityQueue, Empty
 import multiprocessing 
 from pox.openflow.libopenflow_01 import ofp_packet_in, ofp_flow_mod
@@ -17,7 +17,7 @@ import pcap
 
 
 # ==============================================================================
-DELAY_PROFILE_TYPE = 'modified'  # CHANGE THIS: either 'original' or 'modified'
+DELAY_PROFILE_TYPE = 'original'  # CHANGE THIS: either 'original' or 'modified'
 # ==============================================================================
 
 
@@ -46,6 +46,41 @@ if DELAY_PROFILE == 'noop':
     NO_OP = True
 
 
+MAX_FLOW_MOD_COUNT = None
+
+def rate_limit(bandwidth_Mbps, burst_Mbps):
+    pass
+#    cmd = ''
+#    for iface in ('veth4', 'veth6'):
+#        cmd += 'ovs-vsctl set Interface ' + iface + ' ingress_policing_rate=%s; '
+#        cmd += 'ovs-vsctl set Interface ' + iface + ' ingress_policing_burst=%s; '
+#    cmd = cmd % (bandwidth_Mbps * 1000, burst_Mbps * 1000, 0, 0) 
+#    ret = subprocess.call(cmd, shell=True)
+#    if bandwidth_Mbps:
+#        assert ret == 0
+#        print '[!]', cmd
+#        print '[!] Rate limited to %s+/-%s Mbps. Max flow-mod count = %s.' % (bandwidth_Mbps, burst_Mbps, MAX_FLOW_MOD_COUNT)
+
+
+# How many flow-mods can we issue?
+FLOW_TABLE_PROFILE = str(os.environ.get('FLOW_TABLE_PROFILE')).lower()
+if FLOW_TABLE_PROFILE == 'hp':
+    MAX_FLOW_MOD_COUNT = 1500
+    rate_limit(945, 0)
+elif FLOW_TABLE_PROFILE == 'monaco':
+    MAX_FLOW_MOD_COUNT = 512
+    rate_limit(1300, 1)
+elif FLOW_TABLE_PROFILE == 'quanta':
+    MAX_FLOW_MOD_COUNT = 1914
+    rate_limit(954, 1)
+elif FLOW_TABLE_PROFILE == 'none':
+    MAX_FLOW_MOD_COUNT = None
+    rate_limit(0, 0)
+else:
+    raise RuntimeError('Invalid FLOW_TABLE_PROFILE.')
+    
+
+
 class DelayProfiler:
     
     
@@ -64,14 +99,17 @@ class DelayProfiler:
         raw_delay_list = []
         with open(profile_file) as f:
             for line in f:
-                delay, _ = line.strip().split(None, 1)
+                sep = None
+                if ',' in line:
+                    sep = ','
+                delay, _ = line.strip().split(sep, 1)
                 raw_delay_list += [ float(delay) / 1000.0 ]
 
         raw_delay_list.sort()
         
         # Chop up the delays into equal-sized bins.
         delay_count = len(raw_delay_list)
-        bin_size = int(delay_count / 100)
+        bin_size = int(delay_count / delay_count)
         
         self._delay_bins = []
         for index in range(0, delay_count, bin_size):
@@ -317,6 +355,9 @@ class ConditionalDelayedAction(RandomDelayedAction):
     
     def __init__(self):
         
+        if MAX_FLOW_MOD_COUNT:
+            self._flow_mod_count = 0
+        
         self._ovs_pkt_in_profiler = DelayProfiler('./profile/ovs-pkt-in.csv')
         RandomDelayedAction.__init__(self)
         
@@ -332,6 +373,13 @@ class ConditionalDelayedAction(RandomDelayedAction):
 
 
     def add_job(self, filter_obj, func, *args, **kwargs):
+
+        # Limit the number of flow-mods
+        if MAX_FLOW_MOD_COUNT and isinstance(filter_obj, ofp_flow_mod):
+            if self._flow_mod_count >= MAX_FLOW_MOD_COUNT:
+                return
+            else:
+                self._flow_mod_count += 1
 
         if NO_OP:
             return self._execute(func, *args, **kwargs)
