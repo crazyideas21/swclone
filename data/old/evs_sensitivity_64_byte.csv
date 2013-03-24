@@ -1,0 +1,2 @@
+ingress_pps,flow_mod_pps,pkt_out_pps,pkt_in_pps,rule_pps,egress_pps,expected_ingress,expected_flow_mod,expected_pkt_out
+495.3928,376.0488,384.9424,109.6432,50.0000,325.5515,500.0000,500.0000,500.0000
