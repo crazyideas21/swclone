@@ -2,6 +2,18 @@
 '''
 Asynchronous redis clients.
 
+Usage: 
+
+(1) Run ./async_redis.py init_server on the namespace that houses the redis
+server. This initializes the server with a key-value pair with the specified
+length.
+
+(2) Run ./async_redis.py tcpdump on the root namespace.
+
+(3) Start the controller.
+
+(4) Run ./async_redis.py client to start the experiment.
+
 Created on Dec 11, 2012
 
 @author: danny
@@ -88,18 +100,18 @@ if FLOW_TYPE == FlowType.mouse:
 
 elif FLOW_TYPE == FlowType.elephant:
 
-    EXPECTED_GAP_MS = 200
-    DATA_LENGTH = 50 * 1000 * 1000 
-    MAX_CONCURRENT_CONNECTIONS = INFINITY
+    EXPECTED_GAP_MS = 10
+    DATA_LENGTH = 5 * 1000 * 1000 
+    MAX_CONCURRENT_CONNECTIONS = 1910/2
 
-    MAX_QUERY_COUNT = 1000
+    MAX_QUERY_COUNT = INFINITY
 
-    MAX_RUNNING_TIME = 3600
-    INTERESTING_TIME_START = 0
-    INTERESTING_TIME_END = 3600
+    MAX_RUNNING_TIME = 120
+    INTERESTING_TIME_START = 60
+    INTERESTING_TIME_END = 120
 
     MAX_QUERY_SECONDS = 3600
-    MIN_RECV_Mbps = 0.5
+    MIN_RECV_Mbps = 0
     
     SHOW_STATS = True
     RECV_BUF_SIZE = 1048576

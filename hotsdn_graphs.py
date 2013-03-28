@@ -12,6 +12,8 @@ Created on Mar 17, 2013
 from boomslang import PlotLayout, Plot, Line  #@UnresolvedImport
 import sys, os
 
+FONT_SIZE = 18
+
 
 colors = ['black', 'red', 'blue',  'green', 'purple', 'cyan']
 line_styles = ['--'] + ['-'] * (len(colors) - 1)
@@ -26,11 +28,11 @@ def latency(output_graph_filename, csv_file_dir_list):
     redis_plot = Plot()
     pkt_in_plot = Plot()
     flow_mod_plot = Plot()
-    
-    for plot in (redis_plot, pkt_in_plot, flow_mod_plot):
-        plot.hasLegend(location='lower right')
-        plot.yLabel = 'CDF'
-    
+
+    redis_plot.yLabel = 'CDF'
+    flow_mod_plot.hasLegend(location='lower right')
+    flow_mod_plot.legendLabelSize = 12
+        
     redis_plot.xLabel = '(a) Query completion time (ms)'
     pkt_in_plot.xLabel = '(b) Switch processing time for ingress (ms)'
     flow_mod_plot.xLabel = '(c) Switch processing time for egress (ms)'
@@ -39,7 +41,8 @@ def latency(output_graph_filename, csv_file_dir_list):
         
         color = colors.pop(0)
         line_style = line_styles.pop(0)
-        attr_dict = {'color': color, 'label': csv_dir.split('/')[-2], 
+        line_label = csv_dir.split('/')[-2]
+        attr_dict = {'color': color, 'label': capitalize(line_label), 
                      'yLimits': (0, 1), 'lineStyle': line_style}
         
         redis_line = get_line_from_csv(os.path.join(csv_dir, 'async_redis_latency.csv'), 
@@ -47,16 +50,17 @@ def latency(output_graph_filename, csv_file_dir_list):
         pkt_in_line = get_line_from_csv(os.path.join(csv_dir, 'pkt_in_durations.csv'), 
                                         xLimits=(0,140), **attr_dict) 
         flow_mod_line = get_line_from_csv(os.path.join(csv_dir, 'flow_mod_durations.csv'), 
-                                          xLimits=(0,140), **attr_dict) 
-        
+                                          xLimits=(0,140), **attr_dict)         
         redis_plot.add(redis_line)
         pkt_in_plot.add(pkt_in_line)
         flow_mod_plot.add(flow_mod_line)
+
     
     layout.addPlot(redis_plot)
     layout.addPlot(pkt_in_plot)
     layout.addPlot(flow_mod_plot)
     layout.width = 3
+    layout.setPlotDimensions(4.5,4.5*0.618)
     
     layout.save('data/graphs/' + output_graph_filename + '.pdf')
     print 'Done.'
@@ -95,6 +99,10 @@ def main():
     if sys.argv[1] == 'latency':
         latency(sys.argv[2], sys.argv[3:])
     
+
+
+def capitalize(s):
+    return s.replace('hp', 'HP').replace('monaco', 'Monaco').replace('ovs', 'OVS').replace('quanta', 'Quanta')
     
 
 

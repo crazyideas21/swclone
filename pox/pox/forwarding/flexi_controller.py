@@ -119,7 +119,7 @@ class LearningSwitch (EventMixin):
         self.flow_mod_queue = Queue.Queue()
 
         # Maps time at which switch is polled for stats to flow_count.
-        self.flow_stat_interval = 5
+        self.flow_stat_interval = 2 # TODO: default 5
         self.flow_count_dict = {} 
         
         # A special packet that "triggers" the special operations. Subsequent
@@ -206,6 +206,12 @@ class LearningSwitch (EventMixin):
                            for i in range(10)]
         print 'flow_count_list =', flow_count_list # TODO: xxx
         mylog('flow_count_list =', flow_count_list)
+        
+        # TODO: xxx
+        for (table_type, table_id) in [('hw', 0), ('sw', 2)]:
+            with open('data/' + table_type + '-table.csv', 'a') as f:
+                print >> f, '%.3f,%d' % (time.time(), flow_count_list[table_id])
+        
         with self.lock:
             self.flow_count_dict[time.time()] = flow_count_list[0]
 #            (flow_mod_count, _, _) = self.flow_mod_stat
